@@ -2921,9 +2921,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"minanft@npm:^1.15.8":
-  version: 1.15.8
-  resolution: "minanft@npm:1.15.8"
+"minanft@npm:^1.15.11":
+  version: 1.15.11
+  resolution: "minanft@npm:1.15.11"
   dependencies:
     arweave: "npm:^1.15.1"
     axios: "npm:^1.7.2"
@@ -2931,7 +2931,7 @@ __metadata:
     mime: "npm:^3.0.0"
   peerDependencies:
     o1js: ^1.3.0
-  checksum: 10c0/c1d288d6a6aa2006cb524b557f961631ec92e0e60f7d885b14881c9881684c0c1302798b1df52906402c05ff0771416e0f15411a38fc2f2e87688e12c08c9923
+  checksum: 10c0/0c01a24e2afad3f653b6e8840f56f6ca5d6a5c8948e438d5f5d84586bf1660c243b92f3b85c2852e3feeae58dcf30faa3ce7fcbecb8eea2e17439d0da2b8f622
   languageName: node
   linkType: hard
 
@@ -3053,11 +3053,11 @@ __metadata:
     "@types/node": "npm:^20.14.1"
     algoliasearch: "npm:^4.23.3"
     jest: "npm:^29.7.0"
-    minanft: "npm:^1.15.8"
+    minanft: "npm:^1.15.11"
     o1js: "npm:^1.3.0"
     ts-jest: "npm:^29.1.4"
     typescript: "npm:^5.4.5"
-    zkcloudworker: "npm:^0.9.2"
+    zkcloudworker: "npm:^0.10.0"
   languageName: unknown
   linkType: soft
 
@@ -4061,15 +4061,15 @@ __metadata:
   languageName: node
   linkType: hard
 
-"zkcloudworker@npm:^0.9.2":
-  version: 0.9.2
-  resolution: "zkcloudworker@npm:0.9.2"
+"zkcloudworker@npm:^0.10.0":
+  version: 0.10.0
+  resolution: "zkcloudworker@npm:0.10.0"
   dependencies:
     axios: "npm:^1.7.2"
     chalk: "npm:^4.1.2"
     nats: "npm:^2.26.0"
   peerDependencies:
     o1js: ^1.3.0
-  checksum: 10c0/65e18e0637290dd10127a556225c449d645464b1b22c760ae31d7c48147094552c93119559017d563169cd774d7f6356b490fc2d30a4cb4db1e899f21aeb6e09
+  checksum: 10c0/6fd3d4e2015978887b90a4d55cae381ee8c874785bdf6ead69621bbb1bcef6c2f977aedc7a9478612303d3927f532cf2768ed074c039346fa9977c6f252ff8e3
   languageName: node
   linkType: hard

@@ -1,5 +1,4 @@
 import algoliasearch from "algoliasearch";
-import { MinaNFT } from "minanft";
 import { ALGOLIA_KEY, ALGOLIA_PROJECT } from "../env.json";
 import { loadFromIPFS } from "./ipfs";
 
@@ -27,7 +26,11 @@ export async function algolia(params: {
       jobId,
     } = params;
     const client = algoliasearch(ALGOLIA_PROJECT, ALGOLIA_KEY);
-    const index = client.initIndex("nft");
+    if (chain !== "devnet" && chain !== "mainnet" && chain !== "zeko") {
+      console.error("Invalid chain", chain);
+      return false;
+    }
+    const index = client.initIndex(chain);
     console.log("alWriteToken", params);
     const json = await loadFromIPFS(ipfs);
     if (name !== json.name)

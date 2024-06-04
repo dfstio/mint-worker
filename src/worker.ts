@@ -4,7 +4,6 @@ import {
   DeployedSmartContract,
   fetchMinaAccount,
   accountBalanceMina,
-  initBlockchain,
 } from "zkcloudworker";
 import {
   VerificationKey,
@@ -18,10 +17,11 @@ import {
 import {
   NFTContractV2,
   NameContractV2,
-  VERIFICATION_KEY_HASH_V2,
-  VERIFICATION_KEY_V2,
+  VERIFICATION_KEY_V2_JSON,
   MintParams,
   deserializeFields,
+  initBlockchain,
+  blockchain,
 } from "minanft";
 import { transactionParams, deserializeTransaction } from "./deserialize";
 import { algolia } from "./algolia";
@@ -43,18 +43,22 @@ export class MintWorker extends zkCloudWorker {
   private async compile(): Promise<void> {
     try {
       console.time("compiled");
+      if (this.cloud.chain !== "devnet" && this.cloud.chain !== "mainnet") {
+        console.error("Invalid chain", this.cloud.chain);
+        return;
+      }
       if (MintWorker.nameVerificationKey === undefined) {
         MintWorker.nftVerificationKey = (
           await NFTContractV2.compile({ cache: this.cache })
         ).verificationKey;
         if (
-          MintWorker.nftVerificationKey.hash.toBigInt() !==
-          VERIFICATION_KEY_V2.hash.toBigInt()
+          MintWorker.nftVerificationKey.hash.toJSON() !==
+          VERIFICATION_KEY_V2_JSON[this.cloud.chain]?.hash
         ) {
           console.error(
             "Verification key mismatch",
             MintWorker.nftVerificationKey.hash.toJSON(),
-            VERIFICATION_KEY_V2.hash.toJSON()
+            VERIFICATION_KEY_V2_JSON[this.cloud.chain]?.hash
           );
           return;
         }
@@ -63,12 +67,12 @@ export class MintWorker extends zkCloudWorker {
         ).verificationKey;
         if (
           MintWorker.nameVerificationKey.hash.toJSON() !==
-          VERIFICATION_KEY_HASH_V2
+          VERIFICATION_KEY_V2_JSON[this.cloud.chain]?.nameHash
         ) {
           console.error(
             "Name verification key mismatch",
             MintWorker.nameVerificationKey.hash.toJSON(),
-            VERIFICATION_KEY_HASH_V2
+            VERIFICATION_KEY_V2_JSON[this.cloud.chain]?.nameHash
           );
           return;
         }
@@ -117,72 +121,75 @@ export class MintWorker extends zkCloudWorker {
     contractAddress: string;
     transactions: string[];
   }): Promise<string> {
-    if (this.cloud.chain !== "devnet") return "Only devnet is supported";
     if (args.transactions.length === 0) {
       return "No transactions to send";
     }
-    await initBlockchain(this.cloud.chain);
-
-    const { serializedTransaction, signedData, mintParams } = JSON.parse(
-      args.transactions[0]
-    );
-    const contractAddress = PublicKey.fromBase58(args.contractAddress);
-    const mintData = MintParams.fromFields(
-      deserializeFields(mintParams),
-      []
-    ) as MintParams;
-    const { fee, sender, nonce, memo } = transactionParams(
-      serializedTransaction
-    );
-    const ipfs = mintData.metadataParams.storage.toIpfsHash();
-    const price = mintData.price.toBigInt().toString();
-    const name = Encoding.stringFromFields([mintData.name]);
-    await algolia({
-      name,
-      ipfs,
-      contractAddress: args.contractAddress,
-      owner: sender.toBase58(),
-      price,
-      chain: this.cloud.chain,
-      status: "created",
-      jobId: this.cloud.jobId,
-    });
-
-    await this.compile();
-    console.time("prepared tx");
-
-    const zkApp = new NameContractV2(contractAddress);
-    await fetchMinaAccount({
-      publicKey: contractAddress,
-      force: true,
-    });
-    await fetchMinaAccount({
-      publicKey: sender,
-      force: true,
-    });
-    const txNew = await Mina.transaction(
-      { sender, fee, nonce, memo },
-      async () => {
-        AccountUpdate.fundNewAccount(sender);
-        await zkApp.mint(mintData);
-      }
-    );
-    const tx = deserializeTransaction(serializedTransaction, txNew);
-    //if (tx === undefined) throw new Error("tx is undefined");
-    const signedJson = JSON.parse(signedData);
-    //console.log("SignedJson", signedJson);
-
-    tx.transaction.feePayer.authorization =
-      signedJson.zkappCommand.feePayer.authorization;
-    tx.transaction.accountUpdates[0].authorization.signature =
-      signedJson.zkappCommand.accountUpdates[0].authorization.signature;
-    tx.transaction.accountUpdates[2].authorization.signature =
-      signedJson.zkappCommand.accountUpdates[2].authorization.signature;
-    tx.transaction.accountUpdates[3].authorization.signature =
-      signedJson.zkappCommand.accountUpdates[3].authorization.signature;
-    console.timeEnd("prepared tx");
-
+    let algoliaData: any;
     try {
+      await initBlockchain(this.cloud.chain as blockchain);
+
+      const { serializedTransaction, signedData, mintParams } = JSON.parse(
+        args.transactions[0]
+      );
+      const contractAddress = PublicKey.fromBase58(args.contractAddress);
+      const mintData = MintParams.fromFields(
+        deserializeFields(mintParams),
+        []
+      ) as MintParams;
+      const { fee, sender, nonce, memo } = transactionParams(
+        serializedTransaction
+      );
+      const ipfs = mintData.metadataParams.storage.toIpfsHash();
+      const price = mintData.price.toBigInt().toString();
+      const name = Encoding.stringFromFields([mintData.name]);
+      algoliaData = {
+        name,
+        ipfs,
+        contractAddress: args.contractAddress,
+        owner: sender.toBase58(),
+        price,
+        chain: this.cloud.chain,
+        jobId: this.cloud.jobId,
+      };
+      await algolia({
+        ...algoliaData,
+        status: "created",
+      });
+
+      await this.compile();
+      console.time("prepared tx");
+
+      const zkApp = new NameContractV2(contractAddress);
+      await fetchMinaAccount({
+        publicKey: contractAddress,
+        force: true,
+      });
+      await fetchMinaAccount({
+        publicKey: sender,
+        force: true,
+      });
+      const txNew = await Mina.transaction(
+        { sender, fee, nonce, memo },
+        async () => {
+          AccountUpdate.fundNewAccount(sender);
+          await zkApp.mint(mintData);
+        }
+      );
+      const tx = deserializeTransaction(serializedTransaction, txNew);
+      //if (tx === undefined) throw new Error("tx is undefined");
+      const signedJson = JSON.parse(signedData);
+      //console.log("SignedJson", signedJson);
+
+      tx.transaction.feePayer.authorization =
+        signedJson.zkappCommand.feePayer.authorization;
+      tx.transaction.accountUpdates[0].authorization.signature =
+        signedJson.zkappCommand.accountUpdates[0].authorization.signature;
+      tx.transaction.accountUpdates[2].authorization.signature =
+        signedJson.zkappCommand.accountUpdates[2].authorization.signature;
+      tx.transaction.accountUpdates[3].authorization.signature =
+        signedJson.zkappCommand.accountUpdates[3].authorization.signature;
+      console.timeEnd("prepared tx");
+
       console.time("proved tx");
       await tx.prove();
       console.timeEnd("proved tx");
@@ -194,15 +201,8 @@ export class MintWorker extends zkCloudWorker {
       if (txSent?.status == "pending") {
         console.log(`tx sent: hash: ${txSent?.hash} status: ${txSent?.status}`);
         await algolia({
-          name,
-          ipfs,
-          contractAddress: args.contractAddress,
-          owner: sender.toBase58(),
-          price,
-          chain: this.cloud.chain,
+          ...algoliaData,
           status: "pending",
-          jobId: this.cloud.jobId,
-          hash: txSent?.hash,
         });
       } else {
         console.log(
@@ -210,21 +210,19 @@ export class MintWorker extends zkCloudWorker {
           txSent
         );
         await algolia({
-          name,
-          ipfs,
-          contractAddress: args.contractAddress,
-          owner: sender.toBase58(),
-          price,
-          chain: this.cloud.chain,
+          ...algoliaData,
           status: "failed",
-          jobId: this.cloud.jobId,
-          hash: txSent?.hash,
         });
         return "Error sending transaction";
       }
       return txSent?.hash ?? "Error sending transaction";
     } catch (error) {
       console.error("Error sending transaction", error);
+      if (algoliaData)
+        await algolia({
+          ...algoliaData,
+          status: "failed",
+        });
       return "Error sending transaction";
     }
   }
