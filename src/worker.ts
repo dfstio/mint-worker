@@ -25,7 +25,6 @@ import {
 } from "minanft";
 import { transactionParams, deserializeTransaction } from "./deserialize";
 import { algolia } from "./algolia";
-import { send } from "process";
 
 export class MintWorker extends zkCloudWorker {
   static nftVerificationKey: VerificationKey | undefined = undefined;

@@ -1004,12 +1004,21 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/node@npm:*, @types/node@npm:^20.14.0":
+"@types/node@npm:*":
   version: 20.14.0
   resolution: "@types/node@npm:20.14.0"
   dependencies:
     undici-types: "npm:~5.26.4"
   checksum: 10c0/29ccc7592e9ca6b81d00f3a6673241d08e9042d801b10adfd9ebcbbf326208e0a0133a8d146158db18d02a68b85d9ce1fd94e6e1e5be0da263129bf6e42eb22d
+  languageName: node
+  linkType: hard
+
+"@types/node@npm:^20.14.1":
+  version: 20.14.1
+  resolution: "@types/node@npm:20.14.1"
+  dependencies:
+    undici-types: "npm:~5.26.4"
+  checksum: 10c0/12b7879047f50cc217bbea3add7c45e542070f6e9fb2092be97542152b7022512bcb2bf848d04f77e295c4c8699acd484e79a4a4dbe9bcfa4e89dd543d530611
   languageName: node
   linkType: hard
 
@@ -2912,9 +2921,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"minanft@npm:^1.15.7":
-  version: 1.15.7
-  resolution: "minanft@npm:1.15.7"
+"minanft@npm:^1.15.8":
+  version: 1.15.8
+  resolution: "minanft@npm:1.15.8"
   dependencies:
     arweave: "npm:^1.15.1"
     axios: "npm:^1.7.2"
@@ -2922,7 +2931,7 @@ __metadata:
     mime: "npm:^3.0.0"
   peerDependencies:
     o1js: ^1.3.0
-  checksum: 10c0/99b85142abba9c7f11af9b87e9d146661438c4a6a26b4899f7e5f80067a4292b9161c0adb5804890bae4882d60ae673e4ba28ce7f8b2ab790fac8fc9f080be15
+  checksum: 10c0/c1d288d6a6aa2006cb524b557f961631ec92e0e60f7d885b14881c9881684c0c1302798b1df52906402c05ff0771416e0f15411a38fc2f2e87688e12c08c9923
   languageName: node
   linkType: hard
 
@@ -3041,10 +3050,10 @@ __metadata:
   dependencies:
     "@jest/globals": "npm:^29.7.0"
     "@types/jest": "npm:^29.5.12"
-    "@types/node": "npm:^20.14.0"
+    "@types/node": "npm:^20.14.1"
     algoliasearch: "npm:^4.23.3"
     jest: "npm:^29.7.0"
-    minanft: "npm:^1.15.7"
+    minanft: "npm:^1.15.8"
     o1js: "npm:^1.3.0"
     ts-jest: "npm:^29.1.4"
     typescript: "npm:^5.4.5"
