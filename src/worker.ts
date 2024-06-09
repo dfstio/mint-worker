@@ -126,6 +126,7 @@ export class MintWorker extends zkCloudWorker {
     }
     let algoliaData: any;
     try {
+      console.log("chain:", this.cloud.chain);
       await initBlockchain(this.cloud.chain as blockchain);
 
       const { serializedTransaction, signedData, mintParams } = JSON.parse(
