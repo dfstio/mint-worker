@@ -13,6 +13,9 @@ import {
   Cache,
   AccountUpdate,
   Encoding,
+  UInt64,
+  PrivateKey,
+  Signature,
 } from "o1js";
 import {
   NFTContractV2,
@@ -22,9 +25,21 @@ import {
   deserializeFields,
   initBlockchain,
   blockchain,
+  MinaNFT,
+  RollupNFT,
+  FileData,
+  MINANFT_NAME_SERVICE_V2,
+  wallet,
+  api,
+  serializeFields,
 } from "minanft";
-import { transactionParams, deserializeTransaction } from "./deserialize";
+import {
+  transactionParams,
+  deserializeTransaction,
+  serializeTransaction,
+} from "./transaction";
 import { algolia } from "./algolia";
+import { MINANFT_JWT, PINATA_JWT } from "../env.json";
 
 export class MintWorker extends zkCloudWorker {
   static nftVerificationKey: VerificationKey | undefined = undefined;
@@ -107,7 +122,13 @@ export class MintWorker extends zkCloudWorker {
 
     switch (this.cloud.task) {
       case "mint":
-        return await this.sendTx({
+        return await this.mint({
+          contractAddress: args.contractAddress,
+          transactions,
+        });
+
+      case "prepare":
+        return await this.prepare({
           contractAddress: args.contractAddress,
           transactions,
         });
@@ -117,7 +138,7 @@ export class MintWorker extends zkCloudWorker {
     }
   }
 
-  private async sendTx(args: {
+  private async mint(args: {
     contractAddress: string;
     transactions: string[];
   }): Promise<string> {
@@ -225,6 +246,208 @@ export class MintWorker extends zkCloudWorker {
           status: "failed",
         });
       return "Error sending transaction";
+    }
+  }
+
+  private async prepare(args: {
+    contractAddress: string;
+    transactions: string[];
+  }): Promise<string> {
+    if (args.transactions.length === 0) {
+      return "No transactions to send";
+    }
+    let algoliaData: any;
+
+    interface ProofOfNFT {
+      key: string;
+      value: string;
+      isPublic: boolean;
+    }
+
+    interface SimpleImageData {
+      filename: string;
+      size: number;
+      mimeType: string;
+      sha3_512: string;
+      storage: string;
+    }
+    interface SimpleMintNFT {
+      contractAddress: string;
+      chain: string;
+      name: string;
+      description: string;
+      collection: string;
+      price: number;
+      owner: string;
+      image: SimpleImageData;
+      keys: ProofOfNFT[];
+    }
+    try {
+      const chain = this.cloud.chain as blockchain;
+      console.log("chain:", chain);
+      await initBlockchain(chain);
+
+      const nftData: SimpleMintNFT = JSON.parse(
+        args.transactions[0]
+      ) as SimpleMintNFT;
+      const {
+        contractAddress,
+        owner,
+        price,
+        name,
+        description,
+        collection,
+        image,
+        keys,
+      } = nftData;
+
+      const nftPrivateKey = PrivateKey.random();
+      const address = nftPrivateKey.toPublicKey();
+      const net = await initBlockchain(chain);
+      const sender = PublicKey.fromBase58(owner);
+      const pinataJWT = PINATA_JWT;
+      const arweaveKey = undefined;
+      const jwt = MINANFT_JWT;
+      if (jwt === undefined) {
+        console.error("JWT is undefined");
+        return "Error: JWT is undefined";
+      }
+
+      if (pinataJWT === undefined) {
+        console.error("pinataJWT is undefined");
+        return "Error: pinataJWT is undefined";
+      }
+
+      const minanft = new api(jwt);
+      const reservedPromise = minanft.reserveName({
+        name,
+        publicKey: owner,
+        chain: "devnet",
+        contract: contractAddress,
+        version: "v2",
+        developer: "DFST",
+        repo: "web-mint-example",
+      });
+
+      const nft = new RollupNFT({
+        name,
+        address,
+        external_url: net.network.explorerAccountUrl + address.toBase58(),
+      });
+
+      console.timeEnd("prepared data");
+
+      if (collection !== undefined && collection !== "")
+        nft.update({ key: `collection`, value: collection });
+
+      if (description !== undefined && description !== "")
+        nft.updateText({
+          key: `description`,
+          text: description,
+        });
+
+      for (const item of keys) {
+        const { key, value, isPublic } = item;
+        nft.update({ key, value, isPrivate: isPublic === false });
+      }
+
+      console.time("reserved name");
+      const reserved = await reservedPromise;
+      console.timeEnd("reserved name");
+
+      console.log("Reserved", reserved);
+      if (
+        reserved === undefined ||
+        reserved.isReserved !== true ||
+        reserved.signature === undefined ||
+        reserved.signature === "" ||
+        reserved.price === undefined ||
+        (reserved.price as any)?.price === undefined
+      ) {
+        console.error("Name is not reserved");
+        return "Error: Name is not reserved";
+      }
+
+      const signature = Signature.fromBase58(reserved.signature);
+      if (signature === undefined) {
+        console.error("Signature is undefined");
+        return "Error: Signature is undefined";
+      }
+
+      const imageData = new FileData({
+        fileRoot: Field(0),
+        height: 0,
+        filename: image.filename.substring(0, 30),
+        size: image.size,
+        mimeType: image.mimeType.substring(0, 30),
+        sha3_512: image.sha3_512,
+        storage: image.storage,
+      });
+
+      nft.updateFileData({ key: `image`, type: "image", data: imageData });
+
+      const commitPromise = nft.prepareCommitData({ pinataJWT });
+
+      const zkAppAddress = PublicKey.fromBase58(MINANFT_NAME_SERVICE_V2);
+      const zkApp = new NameContractV2(zkAppAddress);
+      const fee = Number((await MinaNFT.fee()).toBigInt());
+      const memo = "mint";
+      await fetchMinaAccount({ publicKey: sender });
+      await fetchMinaAccount({ publicKey: zkAppAddress });
+      console.time("prepared commit data");
+      await commitPromise;
+      console.timeEnd("prepared commit data");
+      console.time("prepared tx");
+
+      if (nft.storage === undefined) throw new Error("Storage is undefined");
+      if (nft.metadataRoot === undefined)
+        throw new Error("Metadata is undefined");
+      const json = JSON.stringify(
+        nft.toJSON({
+          includePrivateData: true,
+        }),
+        null,
+        2
+      );
+      console.log("json", json);
+
+      const verificationKey: VerificationKey = {
+        hash: Field.fromJSON(VERIFICATION_KEY_V2_JSON.devnet.hash),
+        data: VERIFICATION_KEY_V2_JSON.devnet.data,
+      };
+      const mintParams: MintParams = {
+        name: MinaNFT.stringToField(nft.name!),
+        address,
+        price: UInt64.from(BigInt(price * 1e9)),
+        fee: UInt64.from(
+          BigInt((reserved.price as any)?.price * 1_000_000_000)
+        ),
+        feeMaster: wallet,
+        verificationKey,
+        signature,
+        metadataParams: {
+          metadata: nft.metadataRoot,
+          storage: nft.storage!,
+        },
+      };
+      const tx = await Mina.transaction({ sender, fee, memo }, async () => {
+        AccountUpdate.fundNewAccount(sender!);
+        await zkApp.mint(mintParams);
+      });
+
+      tx.sign([nftPrivateKey]);
+      const serializedTransaction = serializeTransaction(tx);
+      const transaction = tx.toJSON();
+      return JSON.stringify({
+        transaction,
+        serializedTransaction,
+        mintParams: serializeFields(MintParams.toFields(mintParams)),
+        fee,
+        memo,
+      });
+    } catch (error) {
+      console.error("Error preparing transaction", error);
+      return "Error preparing transaction";
     }
   }
 }
