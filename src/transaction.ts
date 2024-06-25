@@ -19,7 +19,8 @@ export function transactionParams(serializedTransaction: string): {
 
 export function deserializeTransaction(
   serializedTransaction: string,
-  txNew: Mina.Transaction<false, false>
+  txNew: Mina.Transaction<false, false>,
+  signedJson: any
 ) {
   //console.log("new transaction", txNew);
   const { tx, blindingValues, length } = JSON.parse(serializedTransaction);
@@ -38,6 +39,15 @@ export function deserializeTransaction(
       (
         transaction.transaction.accountUpdates[i].lazyAuthorization as any
       ).blindingValue = Field.fromJSON(blindingValues[i]);
+  }
+  transaction.transaction.feePayer.authorization =
+    signedJson.zkappCommand.feePayer.authorization;
+  for (let i = 0; i < transaction.transaction.accountUpdates.length; i++) {
+    const signature =
+      transaction.transaction.accountUpdates[i].authorization.signature;
+    if (signature !== undefined && signature !== null)
+      transaction.transaction.accountUpdates[i].authorization.signature =
+        signedJson.zkappCommand.accountUpdates[i].authorization.signature;
   }
   return transaction;
 }

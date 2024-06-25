@@ -2921,9 +2921,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"minanft@npm:^1.17.2":
-  version: 1.17.2
-  resolution: "minanft@npm:1.17.2"
+"minanft@npm:^1.17.3":
+  version: 1.17.3
+  resolution: "minanft@npm:1.17.3"
   dependencies:
     arweave: "npm:^1.15.1"
     axios: "npm:^1.7.2"
@@ -2931,7 +2931,7 @@ __metadata:
     mime: "npm:^3.0.0"
   peerDependencies:
     o1js: ^1.3.1
-  checksum: 10c0/595b2c4fc080196e99ed440b680063b05eff7f51aa86699a6091c1ab18e522d9a429bda3f67f6aa1209bb04bee87f506875de441326dae8aceec11c20d249ac5
+  checksum: 10c0/0486b244d527bc067256962c2c4fb2e421f35f8175413071f5ff66bb1a02f4589a04f458322b2f21838a7a292ec0b831a3e323547aca6e77b2571ecdec4f3eb7
   languageName: node
   linkType: hard
 
@@ -3053,7 +3053,7 @@ __metadata:
     "@types/node": "npm:^20.14.8"
     algoliasearch: "npm:^4.23.3"
     jest: "npm:^29.7.0"
-    minanft: "npm:^1.17.2"
+    minanft: "npm:^1.17.3"
     o1js: "npm:^1.3.1"
     ts-jest: "npm:^29.1.5"
     typescript: "npm:^5.5.2"
