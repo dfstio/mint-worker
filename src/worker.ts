@@ -1,7 +1,6 @@
 import {
   zkCloudWorker,
   Cloud,
-  DeployedSmartContract,
   fetchMinaAccount,
   accountBalanceMina,
 } from "zkcloudworker";
@@ -16,10 +15,13 @@ import {
   UInt64,
   PrivateKey,
   Signature,
+  UInt32,
 } from "o1js";
 import {
   NFTContractV2,
   NameContractV2,
+  KYCSignatureData,
+  MintSignatureData,
   VERIFICATION_KEY_V2_JSON,
   MintParams,
   deserializeFields,
@@ -49,10 +51,6 @@ export class MintWorker extends zkCloudWorker {
   constructor(cloud: Cloud) {
     super(cloud);
     this.cache = Cache.FileSystem(this.cloud.cache);
-  }
-
-  public async deployedContracts(): Promise<DeployedSmartContract[]> {
-    throw new Error("not implemented");
   }
 
   private async compile(): Promise<void> {
@@ -335,8 +333,6 @@ export class MintWorker extends zkCloudWorker {
         external_url: net.network.explorerAccountUrl + address.toBase58(),
       });
 
-      console.timeEnd("prepared data");
-
       if (collection !== undefined && collection !== "")
         nft.update({ key: `collection`, value: collection });
 
@@ -365,7 +361,9 @@ export class MintWorker extends zkCloudWorker {
         (reserved.price as any)?.price === undefined
       ) {
         console.error("Name is not reserved");
-        return "Error: Name is not reserved";
+        return "Error: Name is not reserved" + reserved?.reason
+          ? ": " + reserved.reason
+          : "";
       }
 
       const signature = Signature.fromBase58(reserved.signature);
@@ -397,7 +395,6 @@ export class MintWorker extends zkCloudWorker {
       console.time("prepared commit data");
       await commitPromise;
       console.timeEnd("prepared commit data");
-      console.time("prepared tx");
 
       if (nft.storage === undefined) throw new Error("Storage is undefined");
       if (nft.metadataRoot === undefined)
@@ -422,6 +419,7 @@ export class MintWorker extends zkCloudWorker {
         fee: UInt64.from(
           BigInt((reserved.price as any)?.price * 1_000_000_000)
         ),
+        owner: sender,
         feeMaster: wallet,
         verificationKey,
         signature,
@@ -429,6 +427,7 @@ export class MintWorker extends zkCloudWorker {
           metadata: nft.metadataRoot,
           storage: nft.storage!,
         },
+        expiry: UInt32.from(0),
       };
       const tx = await Mina.transaction({ sender, fee, memo }, async () => {
         AccountUpdate.fundNewAccount(sender!);
