@@ -60,3 +60,42 @@ export async function algolia(params: {
     return false;
   }
 }
+
+export async function updatePrice(params: {
+  name: string;
+  contractAddress: string;
+  price: string;
+  chain: string;
+}): Promise<boolean> {
+  try {
+    const { name, contractAddress, price, chain } = params;
+    const client = algoliasearch(ALGOLIA_PROJECT, ALGOLIA_KEY);
+    if (chain !== "devnet" && chain !== "mainnet" && chain !== "zeko") {
+      console.error("Invalid chain", chain);
+      return false;
+    }
+    const index = client.initIndex(chain);
+    console.log("updatePrice", params);
+    const objectID = chain + "." + contractAddress + "." + name;
+    const data = await index.getObject(objectID);
+    if (data === undefined) {
+      console.error("updatePrice: object not found", objectID);
+      return false;
+    }
+    if ((data as any).price !== price) {
+      (data as any).price = price;
+      const result = await index.saveObject(data);
+      if (result.taskID === undefined) {
+        console.error(
+          "mint-worker: updatePrice: Algolia write result is",
+          result
+        );
+      }
+    } else console.log("updatePrice: price is the same", price);
+
+    return true;
+  } catch (error) {
+    console.error("alWriteToken error:", { error, params });
+    return false;
+  }
+}

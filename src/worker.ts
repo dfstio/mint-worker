@@ -10,7 +10,6 @@ import {
   Mina,
   Field,
   Cache,
-  AccountUpdate,
   Encoding,
   UInt64,
   PrivateKey,
@@ -20,10 +19,9 @@ import {
 import {
   NFTContractV2,
   NameContractV2,
-  KYCSignatureData,
-  MintSignatureData,
   VERIFICATION_KEY_V2_JSON,
   MintParams,
+  SellParams,
   deserializeFields,
   initBlockchain,
   blockchain,
@@ -40,7 +38,7 @@ import {
   deserializeTransaction,
   serializeTransaction,
 } from "./transaction";
-import { algolia } from "./algolia";
+import { algolia, updatePrice } from "./algolia";
 import { MINANFT_JWT, PINATA_JWT } from "../env.json";
 
 export class MintWorker extends zkCloudWorker {
@@ -125,6 +123,12 @@ export class MintWorker extends zkCloudWorker {
           transactions,
         });
 
+      case "sell":
+        return await this.sell({
+          contractAddress: args.contractAddress,
+          transactions,
+        });
+
       case "prepare":
         return await this.prepare({
           contractAddress: args.contractAddress,
@@ -133,6 +137,100 @@ export class MintWorker extends zkCloudWorker {
 
       default:
         throw new Error(`Unknown task: ${this.cloud.task}`);
+    }
+  }
+
+  private async sell(args: {
+    contractAddress: string;
+    transactions: string[];
+  }): Promise<string> {
+    if (args.transactions.length === 0) {
+      return "No transactions to send";
+    }
+    let algoliaData: any;
+    try {
+      console.log("chain:", this.cloud.chain);
+      await initBlockchain(this.cloud.chain as blockchain);
+
+      const { serializedTransaction, signedData, sellParams, name } =
+        JSON.parse(args.transactions[0]);
+      const signedJson = JSON.parse(signedData);
+      const contractAddress = PublicKey.fromBase58(args.contractAddress);
+      const sellData = SellParams.fromFields(
+        deserializeFields(sellParams)
+      ) as MintParams;
+      const { fee, sender, nonce, memo } = transactionParams(
+        serializedTransaction,
+        signedJson
+      );
+      console.log("fee", fee.toBigInt());
+      const price = sellData.price.toBigInt().toString();
+      const address = sellData.address;
+
+      await this.compile();
+      console.time("prepared tx");
+
+      const zkApp = new NameContractV2(contractAddress);
+      const tokenId = zkApp.deriveTokenId();
+      await fetchMinaAccount({
+        publicKey: contractAddress,
+        force: true,
+      });
+      await fetchMinaAccount({
+        publicKey: sender,
+        force: true,
+      });
+      await fetchMinaAccount({
+        publicKey: address,
+        tokenId,
+        force: true,
+      });
+
+      const txNew = await Mina.transaction(
+        { sender, fee, nonce, memo },
+        async () => {
+          await zkApp.sell(sellData);
+        }
+      );
+
+      console.log("txNew", txNew);
+      console.log("SignedJson", signedJson);
+      const tx = deserializeTransaction(
+        serializedTransaction,
+        txNew,
+        signedJson
+      );
+      if (tx === undefined) throw new Error("tx is undefined");
+
+      console.timeEnd("prepared tx");
+
+      console.time("proved tx");
+      await tx.prove();
+      console.timeEnd("proved tx");
+
+      console.log(`Sending tx...`);
+      console.log("sender:", sender.toBase58());
+      console.log("Sender balance:", await accountBalanceMina(sender));
+      const txSent = await tx.safeSend();
+      if (txSent?.status == "pending") {
+        console.log(`tx sent: hash: ${txSent?.hash} status: ${txSent?.status}`);
+        await updatePrice({
+          name,
+          contractAddress: args.contractAddress,
+          price,
+          chain: this.cloud.chain,
+        });
+      } else {
+        console.log(
+          `tx NOT sent: hash: ${txSent?.hash} status: ${txSent?.status}`,
+          txSent
+        );
+        return "Error sending transaction";
+      }
+      return txSent?.hash ?? "Error sending transaction";
+    } catch (error) {
+      console.error("Error sending transaction", error);
+      return "Error sending transaction";
     }
   }
 
@@ -151,13 +249,16 @@ export class MintWorker extends zkCloudWorker {
       const { serializedTransaction, signedData, mintParams } = JSON.parse(
         args.transactions[0]
       );
+      const signedJson = JSON.parse(signedData);
       const contractAddress = PublicKey.fromBase58(args.contractAddress);
       const mintData = MintParams.fromFields(
         deserializeFields(mintParams),
         []
       ) as MintParams;
+
       const { fee, sender, nonce, memo } = transactionParams(
-        serializedTransaction
+        serializedTransaction,
+        signedJson
       );
       const ipfs = mintData.metadataParams.storage.toIpfsHash();
       const price = mintData.price.toBigInt().toString();
@@ -191,15 +292,20 @@ export class MintWorker extends zkCloudWorker {
       const txNew = await Mina.transaction(
         { sender, fee, nonce, memo },
         async () => {
-          AccountUpdate.fundNewAccount(sender);
+          //AccountUpdate.fundNewAccount(sender);
           await zkApp.mint(mintData);
         }
       );
-      const tx = deserializeTransaction(serializedTransaction, txNew);
-      //if (tx === undefined) throw new Error("tx is undefined");
-      const signedJson = JSON.parse(signedData);
-      //console.log("SignedJson", signedJson);
 
+      //console.log("SignedJson", signedJson);
+      const tx = deserializeTransaction(
+        serializedTransaction,
+        txNew,
+        signedJson
+      );
+      //if (tx === undefined) throw new Error("tx is undefined");
+
+      /*
       tx.transaction.feePayer.authorization =
         signedJson.zkappCommand.feePayer.authorization;
       tx.transaction.accountUpdates[0].authorization.signature =
@@ -208,6 +314,7 @@ export class MintWorker extends zkCloudWorker {
         signedJson.zkappCommand.accountUpdates[2].authorization.signature;
       tx.transaction.accountUpdates[3].authorization.signature =
         signedJson.zkappCommand.accountUpdates[3].authorization.signature;
+      */
       console.timeEnd("prepared tx");
 
       console.time("proved tx");
@@ -358,6 +465,7 @@ export class MintWorker extends zkCloudWorker {
         reserved.signature === undefined ||
         reserved.signature === "" ||
         reserved.price === undefined ||
+        reserved.expiry === undefined ||
         (reserved.price as any)?.price === undefined
       ) {
         console.error("Name is not reserved");
@@ -371,6 +479,8 @@ export class MintWorker extends zkCloudWorker {
         console.error("Signature is undefined");
         return "Error: Signature is undefined";
       }
+
+      const expiry = UInt32.from(reserved.expiry);
 
       const imageData = new FileData({
         fileRoot: Field(0),
@@ -427,10 +537,10 @@ export class MintWorker extends zkCloudWorker {
           metadata: nft.metadataRoot,
           storage: nft.storage!,
         },
-        expiry: UInt32.from(0),
+        expiry,
       };
       const tx = await Mina.transaction({ sender, fee, memo }, async () => {
-        AccountUpdate.fundNewAccount(sender!);
+        //AccountUpdate.fundNewAccount(sender!);
         await zkApp.mint(mintParams);
       });
 

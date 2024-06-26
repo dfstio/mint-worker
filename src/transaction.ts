@@ -1,16 +1,19 @@
 import { Field, PublicKey, Transaction, Mina, UInt64 } from "o1js";
 
-export function transactionParams(serializedTransaction: string): {
+export function transactionParams(
+  serializedTransaction: string,
+  signedJson: any
+): {
   fee: UInt64;
   sender: PublicKey;
   nonce: number;
   memo: string;
 } {
-  const { fee, sender, nonce, tx } = JSON.parse(serializedTransaction);
+  const { sender, nonce, tx } = JSON.parse(serializedTransaction);
   const transaction = Mina.Transaction.fromJSON(JSON.parse(tx));
   const memo = transaction.transaction.memo;
   return {
-    fee: UInt64.fromJSON(fee),
+    fee: UInt64.from(signedJson.zkappCommand.feePayer.body.fee),
     sender: PublicKey.fromBase58(sender),
     nonce: Number(nonce),
     memo,
@@ -19,7 +22,8 @@ export function transactionParams(serializedTransaction: string): {
 
 export function deserializeTransaction(
   serializedTransaction: string,
-  txNew: Mina.Transaction<false, false>
+  txNew: Mina.Transaction<false, false>,
+  signedJson: any
 ) {
   //console.log("new transaction", txNew);
   const { tx, blindingValues, length } = JSON.parse(serializedTransaction);
@@ -38,6 +42,19 @@ export function deserializeTransaction(
       (
         transaction.transaction.accountUpdates[i].lazyAuthorization as any
       ).blindingValue = Field.fromJSON(blindingValues[i]);
+  }
+  transaction.transaction.feePayer.authorization =
+    signedJson.zkappCommand.feePayer.authorization;
+  transaction.transaction.feePayer.body.fee = UInt64.from(
+    signedJson.zkappCommand.feePayer.body.fee
+  );
+  for (let i = 0; i < length; i++) {
+    const signature =
+      signedJson.zkappCommand.accountUpdates[i].authorization.signature;
+    if (signature !== undefined && signature !== null) {
+      transaction.transaction.accountUpdates[i].authorization.signature =
+        signedJson.zkappCommand.accountUpdates[i].authorization.signature;
+    }
   }
   return transaction;
 }
