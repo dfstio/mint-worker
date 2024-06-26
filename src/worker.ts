@@ -22,6 +22,7 @@ import {
   VERIFICATION_KEY_V2_JSON,
   MintParams,
   SellParams,
+  BuyParams,
   deserializeFields,
   initBlockchain,
   blockchain,
@@ -38,7 +39,7 @@ import {
   deserializeTransaction,
   serializeTransaction,
 } from "./transaction";
-import { algolia, updatePrice } from "./algolia";
+import { algolia, updatePrice, updateOwner } from "./algolia";
 import { MINANFT_JWT, PINATA_JWT } from "../env.json";
 
 export class MintWorker extends zkCloudWorker {
@@ -129,6 +130,12 @@ export class MintWorker extends zkCloudWorker {
           transactions,
         });
 
+      case "buy":
+        return await this.buy({
+          contractAddress: args.contractAddress,
+          transactions,
+        });
+
       case "prepare":
         return await this.prepare({
           contractAddress: args.contractAddress,
@@ -140,6 +147,100 @@ export class MintWorker extends zkCloudWorker {
     }
   }
 
+  private async buy(args: {
+    contractAddress: string;
+    transactions: string[];
+  }): Promise<string> {
+    if (args.transactions.length === 0) {
+      return "No transactions to send";
+    }
+    try {
+      console.log("chain:", this.cloud.chain);
+      await initBlockchain(this.cloud.chain as blockchain);
+
+      const { serializedTransaction, signedData, buyParams, name } = JSON.parse(
+        args.transactions[0]
+      );
+      const signedJson = JSON.parse(signedData);
+      const contractAddress = PublicKey.fromBase58(args.contractAddress);
+      const buyData = BuyParams.fromFields(
+        deserializeFields(buyParams)
+      ) as MintParams;
+      const { fee, sender, nonce, memo } = transactionParams(
+        serializedTransaction,
+        signedJson
+      );
+      console.log("fee", fee.toBigInt());
+      const price = buyData.price.toBigInt().toString();
+      const address = buyData.address;
+
+      await this.compile();
+      console.time("prepared tx");
+
+      const zkApp = new NameContractV2(contractAddress);
+      const tokenId = zkApp.deriveTokenId();
+      await fetchMinaAccount({
+        publicKey: contractAddress,
+        force: true,
+      });
+      await fetchMinaAccount({
+        publicKey: sender,
+        force: true,
+      });
+      await fetchMinaAccount({
+        publicKey: address,
+        tokenId,
+        force: true,
+      });
+
+      const txNew = await Mina.transaction(
+        { sender, fee, nonce, memo },
+        async () => {
+          await zkApp.buy(buyData);
+        }
+      );
+
+      console.log("txNew", txNew);
+      console.log("SignedJson", signedJson);
+      const tx = deserializeTransaction(
+        serializedTransaction,
+        txNew,
+        signedJson
+      );
+      if (tx === undefined) throw new Error("tx is undefined");
+
+      console.timeEnd("prepared tx");
+
+      console.time("proved tx");
+      await tx.prove();
+      console.timeEnd("proved tx");
+
+      console.log(`Sending tx...`);
+      console.log("sender:", sender.toBase58());
+      console.log("Sender balance:", await accountBalanceMina(sender));
+      const txSent = await tx.safeSend();
+      if (txSent?.status == "pending") {
+        console.log(`tx sent: hash: ${txSent?.hash} status: ${txSent?.status}`);
+        await updateOwner({
+          name,
+          contractAddress: args.contractAddress,
+          owner: sender.toBase58(),
+          chain: this.cloud.chain,
+        });
+      } else {
+        console.log(
+          `tx NOT sent: hash: ${txSent?.hash} status: ${txSent?.status}`,
+          txSent
+        );
+        return "Error sending transaction";
+      }
+      return txSent?.hash ?? "Error sending transaction";
+    } catch (error) {
+      console.error("Error sending transaction", error);
+      return "Error sending transaction";
+    }
+  }
+
   private async sell(args: {
     contractAddress: string;
     transactions: string[];
@@ -147,7 +248,6 @@ export class MintWorker extends zkCloudWorker {
     if (args.transactions.length === 0) {
       return "No transactions to send";
     }
-    let algoliaData: any;
     try {
       console.log("chain:", this.cloud.chain);
       await initBlockchain(this.cloud.chain as blockchain);
