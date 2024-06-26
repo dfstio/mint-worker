@@ -10,7 +10,6 @@ import {
   Mina,
   Field,
   Cache,
-  AccountUpdate,
   Encoding,
   UInt64,
   PrivateKey,
@@ -20,8 +19,6 @@ import {
 import {
   NFTContractV2,
   NameContractV2,
-  KYCSignatureData,
-  MintSignatureData,
   VERIFICATION_KEY_V2_JSON,
   MintParams,
   SellParams,
@@ -157,13 +154,16 @@ export class MintWorker extends zkCloudWorker {
 
       const { serializedTransaction, signedData, sellParams, name } =
         JSON.parse(args.transactions[0]);
+      const signedJson = JSON.parse(signedData);
       const contractAddress = PublicKey.fromBase58(args.contractAddress);
       const sellData = SellParams.fromFields(
         deserializeFields(sellParams)
       ) as MintParams;
       const { fee, sender, nonce, memo } = transactionParams(
-        serializedTransaction
+        serializedTransaction,
+        signedJson
       );
+      console.log("fee", fee.toBigInt());
       const price = sellData.price.toBigInt().toString();
       const address = sellData.address;
 
@@ -192,7 +192,7 @@ export class MintWorker extends zkCloudWorker {
           await zkApp.sell(sellData);
         }
       );
-      const signedJson = JSON.parse(signedData);
+
       console.log("txNew", txNew);
       console.log("SignedJson", signedJson);
       const tx = deserializeTransaction(
@@ -249,13 +249,16 @@ export class MintWorker extends zkCloudWorker {
       const { serializedTransaction, signedData, mintParams } = JSON.parse(
         args.transactions[0]
       );
+      const signedJson = JSON.parse(signedData);
       const contractAddress = PublicKey.fromBase58(args.contractAddress);
       const mintData = MintParams.fromFields(
         deserializeFields(mintParams),
         []
       ) as MintParams;
+
       const { fee, sender, nonce, memo } = transactionParams(
-        serializedTransaction
+        serializedTransaction,
+        signedJson
       );
       const ipfs = mintData.metadataParams.storage.toIpfsHash();
       const price = mintData.price.toBigInt().toString();
@@ -289,11 +292,11 @@ export class MintWorker extends zkCloudWorker {
       const txNew = await Mina.transaction(
         { sender, fee, nonce, memo },
         async () => {
-          AccountUpdate.fundNewAccount(sender);
+          //AccountUpdate.fundNewAccount(sender);
           await zkApp.mint(mintData);
         }
       );
-      const signedJson = JSON.parse(signedData);
+
       //console.log("SignedJson", signedJson);
       const tx = deserializeTransaction(
         serializedTransaction,
@@ -537,7 +540,7 @@ export class MintWorker extends zkCloudWorker {
         expiry,
       };
       const tx = await Mina.transaction({ sender, fee, memo }, async () => {
-        AccountUpdate.fundNewAccount(sender!);
+        //AccountUpdate.fundNewAccount(sender!);
         await zkApp.mint(mintParams);
       });
 
