@@ -31,11 +31,19 @@ export async function algolia(params: {
       return false;
     }
     const index = client.initIndex(chain);
+    const objectID = chain + "." + contractAddress + "." + name;
+    const existing = await index.getObject(objectID);
+    if (existing! == undefined && status === "failed") {
+      console.error(
+        "algolia: object already exists, will not update with failed status",
+        objectID
+      );
+      return false;
+    }
     console.log("alWriteToken", params);
     const json = await loadFromIPFS(ipfs);
     if (name !== json.name)
       console.error("name mismatch", { name, jsonName: json.name });
-    const objectID = chain + "." + contractAddress + "." + name;
     const data = {
       objectID,
       chain,
@@ -134,6 +142,45 @@ export async function updateOwner(params: {
     return true;
   } catch (error) {
     console.error("mint-worker: updateOwner error:", { error, params });
+    return false;
+  }
+}
+
+export async function algoliaTransaction(params: {
+  name: string;
+  jobId: string;
+  contractAddress: string;
+  chain: string;
+  hash?: string;
+  status?: string;
+  operation: string;
+  price: string;
+  sender: string;
+}): Promise<boolean> {
+  try {
+    const { jobId, chain } = params;
+    const client = algoliasearch(ALGOLIA_PROJECT, ALGOLIA_KEY);
+    if (chain !== "devnet" && chain !== "mainnet" && chain !== "zeko") {
+      console.error("Invalid chain", chain);
+      return false;
+    }
+    const index = client.initIndex(chain + "-txs");
+    console.log("algoliaTransaction", params);
+    const result = await index.saveObject({
+      objectID: jobId,
+      time: Date.now(),
+      ...params,
+    });
+    if (result.taskID === undefined) {
+      console.error(
+        "mint-worker: algoliaTransaction: Algolia write result is",
+        result
+      );
+    }
+
+    return true;
+  } catch (error) {
+    console.error("mint-worker: algoliaTransaction error:", { error, params });
     return false;
   }
 }

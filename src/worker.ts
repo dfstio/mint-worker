@@ -39,7 +39,12 @@ import {
   deserializeTransaction,
   serializeTransaction,
 } from "./transaction";
-import { algolia, updatePrice, updateOwner } from "./algolia";
+import {
+  algolia,
+  updatePrice,
+  updateOwner,
+  algoliaTransaction,
+} from "./algolia";
 import { MINANFT_JWT, PINATA_JWT } from "../env.json";
 
 export class MintWorker extends zkCloudWorker {
@@ -219,13 +224,32 @@ export class MintWorker extends zkCloudWorker {
       console.log("sender:", sender.toBase58());
       console.log("Sender balance:", await accountBalanceMina(sender));
       const txSent = await tx.safeSend();
-      if (txSent?.status == "pending") {
+      await algoliaTransaction({
+        jobId: this.cloud.jobId,
+        name,
+        contractAddress: args.contractAddress,
+        chain: this.cloud.chain,
+        hash: txSent?.hash,
+        status: txSent?.status,
+        operation: "buy",
+        price,
+        sender: sender.toBase58(),
+      });
+      if (txSent?.status === "pending") {
         console.log(`tx sent: hash: ${txSent?.hash} status: ${txSent?.status}`);
         await updateOwner({
           name,
           contractAddress: args.contractAddress,
           owner: sender.toBase58(),
           chain: this.cloud.chain,
+        });
+        await this.cloud.publishTransactionMetadata({
+          txId: txSent?.hash,
+          metadata: {
+            events: [{ type: "buy", name, price, buyer: sender.toBase58() }],
+            actions: [],
+            custom: {},
+          },
         });
       } else {
         console.log(
@@ -312,6 +336,17 @@ export class MintWorker extends zkCloudWorker {
       console.log("sender:", sender.toBase58());
       console.log("Sender balance:", await accountBalanceMina(sender));
       const txSent = await tx.safeSend();
+      await algoliaTransaction({
+        jobId: this.cloud.jobId,
+        name,
+        contractAddress: args.contractAddress,
+        chain: this.cloud.chain,
+        hash: txSent?.hash,
+        status: txSent?.status,
+        operation: "sell",
+        price,
+        sender: sender.toBase58(),
+      });
       if (txSent?.status == "pending") {
         console.log(`tx sent: hash: ${txSent?.hash} status: ${txSent?.status}`);
         await updatePrice({
@@ -319,6 +354,14 @@ export class MintWorker extends zkCloudWorker {
           contractAddress: args.contractAddress,
           price,
           chain: this.cloud.chain,
+        });
+        await this.cloud.publishTransactionMetadata({
+          txId: txSent?.hash,
+          metadata: {
+            events: [{ type: "sell", name, price, seller: sender.toBase58() }],
+            actions: [],
+            custom: {},
+          },
         });
       } else {
         console.log(
@@ -425,11 +468,30 @@ export class MintWorker extends zkCloudWorker {
       console.log("sender:", sender.toBase58());
       console.log("Sender balance:", await accountBalanceMina(sender));
       const txSent = await tx.safeSend();
+      await algoliaTransaction({
+        jobId: this.cloud.jobId,
+        name,
+        contractAddress: args.contractAddress,
+        chain: this.cloud.chain,
+        hash: txSent?.hash,
+        status: txSent?.status,
+        operation: "mint",
+        price,
+        sender: sender.toBase58(),
+      });
       if (txSent?.status == "pending") {
         console.log(`tx sent: hash: ${txSent?.hash} status: ${txSent?.status}`);
         await algolia({
           ...algoliaData,
           status: "pending",
+        });
+        await this.cloud.publishTransactionMetadata({
+          txId: txSent?.hash,
+          metadata: {
+            events: [{ type: "mint", name, price, owner: sender.toBase58() }],
+            actions: [],
+            custom: {},
+          },
         });
       } else {
         console.log(
@@ -599,7 +661,7 @@ export class MintWorker extends zkCloudWorker {
       const zkAppAddress = PublicKey.fromBase58(MINANFT_NAME_SERVICE_V2);
       const zkApp = new NameContractV2(zkAppAddress);
       const fee = Number((await MinaNFT.fee()).toBigInt());
-      const memo = "mint";
+      const memo = `mint NFT @${name}`.substring(0, 30);
       await fetchMinaAccount({ publicKey: sender });
       await fetchMinaAccount({ publicKey: zkAppAddress });
       console.time("prepared commit data");
