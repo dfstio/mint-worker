@@ -1,6 +1,6 @@
 {
   "name": "mint-worker",
-  "version": "0.5.7",
+  "version": "0.5.12",
   "author": "DFST",
   "devDependencies": {
     "@jest/globals": "^29.7.0",
@@ -13,7 +13,7 @@
   "packageManager": "yarn@4.2.2",
   "dependencies": {
     "algoliasearch": "^4.24.0",
-    "minanft": "^1.19.0",
+    "minanft": "^1.19.1",
     "o1js": "^1.4.0",
     "zkcloudworker": "^0.11.10"
   },
