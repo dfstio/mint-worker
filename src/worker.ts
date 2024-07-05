@@ -256,9 +256,18 @@ export class MintWorker extends zkCloudWorker {
           `tx NOT sent: hash: ${txSent?.hash} status: ${txSent?.status}`,
           txSent
         );
-        return "Error sending transaction";
+        return `Error sending transaction, ${
+          txSent?.hash ? "hash: " + txSent?.hash : ""
+        } ${txSent?.status ? "status: " + txSent?.status : ""}
+        ${txSent?.errors[0] ? "error: " + txSent?.errors[0] : ""}`;
       }
-      return txSent?.hash ?? "Error sending transaction";
+      return (
+        txSent?.hash ??
+        `Error sending transaction, ${
+          txSent?.hash ? "hash: " + txSent?.hash : ""
+        } ${txSent?.status ? "status: " + txSent?.status : ""}
+      ${txSent?.errors[0] ? "error: " + txSent?.errors[0] : ""}`
+      );
     } catch (error) {
       console.error("Error sending transaction", error);
       return "Error sending transaction";
@@ -368,9 +377,18 @@ export class MintWorker extends zkCloudWorker {
           `tx NOT sent: hash: ${txSent?.hash} status: ${txSent?.status}`,
           txSent
         );
-        return "Error sending transaction";
+        return `Error sending transaction, ${
+          txSent?.hash ? "hash: " + txSent?.hash : ""
+        } ${txSent?.status ? "status: " + txSent?.status : ""}
+        ${txSent?.errors[0] ? "error: " + txSent?.errors[0] : ""}`;
       }
-      return txSent?.hash ?? "Error sending transaction";
+      return (
+        txSent?.hash ??
+        `Error sending transaction, ${
+          txSent?.hash ? "hash: " + txSent?.hash : ""
+        } ${txSent?.status ? "status: " + txSent?.status : ""}
+      ${txSent?.errors[0] ? "error: " + txSent?.errors[0] : ""}`
+      );
     } catch (error) {
       console.error("Error sending transaction", error);
       return "Error sending transaction";
@@ -502,9 +520,18 @@ export class MintWorker extends zkCloudWorker {
           ...algoliaData,
           status: "failed",
         });
-        return "Error sending transaction";
+        return `Error sending transaction, ${
+          txSent?.hash ? "hash: " + txSent?.hash : ""
+        } ${txSent?.status ? "status: " + txSent?.status : ""}
+        ${txSent?.errors[0] ? "error: " + txSent?.errors[0] : ""}`;
       }
-      return txSent?.hash ?? "Error sending transaction";
+      return (
+        txSent?.hash ??
+        `Error sending transaction, ${
+          txSent?.hash ? "hash: " + txSent?.hash : ""
+        } ${txSent?.status ? "status: " + txSent?.status : ""}
+      ${txSent?.errors[0] ? "error: " + txSent?.errors[0] : ""}`
+      );
     } catch (error) {
       console.error("Error sending transaction", error);
       if (algoliaData)

@@ -32,13 +32,17 @@ export async function algolia(params: {
     }
     const index = client.initIndex(chain);
     const objectID = chain + "." + contractAddress + "." + name;
-    const existing = await index.getObject(objectID);
-    if (existing! == undefined && status === "failed") {
-      console.error(
-        "algolia: object already exists, will not update with failed status",
-        objectID
-      );
-      return false;
+    if (status === "failed") {
+      try {
+        const existing = await index.getObject(objectID);
+        if (existing! == undefined) {
+          console.error(
+            "algolia: object already exists, will not update with failed status",
+            objectID
+          );
+          return false;
+        }
+      } catch (error) {}
     }
     console.log("alWriteToken", params);
     const json = await loadFromIPFS(ipfs);

@@ -1,6 +1,6 @@
 {
   "name": "mint-worker",
-  "version": "0.5.12",
+  "version": "0.5.15",
   "author": "DFST",
   "devDependencies": {
     "@jest/globals": "^29.7.0",
