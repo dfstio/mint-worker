@@ -32,21 +32,31 @@ export async function algolia(params: {
     }
     const index = client.initIndex(chain);
     const objectID = chain + "." + contractAddress + "." + name;
-    if (status === "failed") {
+    if (status === "failed" || status === "created") {
       try {
         const existing = await index.getObject(objectID);
-        if (existing! == undefined) {
+        console.log("existing object", existing);
+        if (existing !== undefined) {
           console.error(
-            "algolia: object already exists, will not update with failed status",
-            objectID
+            "algolia: object already exists, will not update with failed or create status",
+            { objectID, status, params }
           );
           return false;
         }
-      } catch (error) {}
+      } catch (error) {
+        console.log("algolia: cannot find existing object", {
+          objectID,
+          error,
+        });
+      }
     }
     console.log("alWriteToken", params);
     const json = await loadFromIPFS(ipfs);
-    if (name !== json.name)
+    if (json === undefined) {
+      console.error("loadFromIPFS failed", { ipfs });
+      return false;
+    }
+    if (name !== json?.name)
       console.error("name mismatch", { name, jsonName: json.name });
     const data = {
       objectID,
