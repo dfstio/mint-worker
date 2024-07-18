@@ -46,6 +46,7 @@ import {
   algoliaTransaction,
 } from "./algolia";
 import { MINANFT_JWT, PINATA_JWT } from "../env.json";
+import { hash } from "crypto";
 
 export class MintWorker extends zkCloudWorker {
   static nftVerificationKey: VerificationKey | undefined = undefined;
@@ -152,6 +153,34 @@ export class MintWorker extends zkCloudWorker {
     }
   }
 
+  private async saveTransaction(params: {
+    tx: Mina.PendingTransaction | Mina.RejectedTransaction;
+    name: string;
+    operation: string;
+  }): Promise<void> {
+    const { tx, name, operation } = params;
+    const time = Date.now();
+    await this.cloud.saveFile(
+      `${this.cloud.chain}-${operation}-${name}-${
+        tx.hash ? tx.hash : Date.now()
+      }.json`,
+      Buffer.from(
+        JSON.stringify(
+          {
+            time,
+            timeISO: new Date(time).toISOString(),
+            hash: tx.hash,
+            status: tx.status,
+            errors: tx.errors,
+            tx: tx.toJSON(),
+          },
+          null,
+          2
+        )
+      )
+    );
+  }
+
   private async buy(args: {
     contractAddress: string;
     transactions: string[];
@@ -235,12 +264,7 @@ export class MintWorker extends zkCloudWorker {
         price,
         sender: sender.toBase58(),
       });
-      await this.cloud.saveFile(
-        `${this.cloud.chain}-buy-${name}-${
-          txSent.hash ? txSent.hash : Date.now()
-        }.json`,
-        Buffer.from(JSON.stringify(txSent.toJSON(), null, 2))
-      );
+      await this.saveTransaction({ tx: txSent, name, operation: "buy" });
       if (txSent?.status === "pending") {
         console.log(`tx sent: hash: ${txSent?.hash} status: ${txSent?.status}`);
         await updateOwner({
@@ -362,12 +386,7 @@ export class MintWorker extends zkCloudWorker {
         price,
         sender: sender.toBase58(),
       });
-      await this.cloud.saveFile(
-        `${this.cloud.chain}-sell-${name}-${
-          txSent.hash ? txSent.hash : Date.now()
-        }.json`,
-        Buffer.from(JSON.stringify(txSent.toJSON(), null, 2))
-      );
+      await this.saveTransaction({ tx: txSent, name, operation: "sell" });
       if (txSent?.status == "pending") {
         console.log(`tx sent: hash: ${txSent?.hash} status: ${txSent?.status}`);
         await updatePrice({
@@ -509,12 +528,7 @@ export class MintWorker extends zkCloudWorker {
         price,
         sender: sender.toBase58(),
       });
-      await this.cloud.saveFile(
-        `${this.cloud.chain}-mint-${name}-${
-          txSent.hash ? txSent.hash : Date.now()
-        }.json`,
-        Buffer.from(JSON.stringify(txSent.toJSON(), null, 2))
-      );
+      await this.saveTransaction({ tx: txSent, name, operation: "mint" });
       if (txSent?.status == "pending") {
         console.log(`tx sent: hash: ${txSent?.hash} status: ${txSent?.status}`);
         await algolia({
