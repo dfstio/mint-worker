@@ -15,7 +15,7 @@ export function transactionParams(
   return {
     fee: UInt64.from(signedJson.zkappCommand.feePayer.body.fee),
     sender: PublicKey.fromBase58(sender),
-    nonce: Number(nonce),
+    nonce: Number(signedJson.zkappCommand.feePayer.body.nonce),
     memo,
   };
 }

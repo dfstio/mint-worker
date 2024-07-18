@@ -235,6 +235,12 @@ export class MintWorker extends zkCloudWorker {
         price,
         sender: sender.toBase58(),
       });
+      await this.cloud.saveFile(
+        `${this.cloud.chain}-buy-${name}-${
+          txSent.hash ? txSent.hash : Date.now()
+        }.json`,
+        Buffer.from(JSON.stringify(txSent.toJSON(), null, 2))
+      );
       if (txSent?.status === "pending") {
         console.log(`tx sent: hash: ${txSent?.hash} status: ${txSent?.status}`);
         await updateOwner({
@@ -256,9 +262,18 @@ export class MintWorker extends zkCloudWorker {
           `tx NOT sent: hash: ${txSent?.hash} status: ${txSent?.status}`,
           txSent
         );
-        return "Error sending transaction";
+        return `Error sending transaction, ${
+          txSent?.hash ? "hash: " + txSent?.hash : ""
+        } ${txSent?.status ? "status: " + txSent?.status : ""}
+        ${txSent?.errors[0] ? "error: " + txSent?.errors[0] : ""}`;
       }
-      return txSent?.hash ?? "Error sending transaction";
+      return (
+        txSent?.hash ??
+        `Error sending transaction, ${
+          txSent?.hash ? "hash: " + txSent?.hash : ""
+        } ${txSent?.status ? "status: " + txSent?.status : ""}
+      ${txSent?.errors[0] ? "error: " + txSent?.errors[0] : ""}`
+      );
     } catch (error) {
       console.error("Error sending transaction", error);
       return "Error sending transaction";
@@ -347,6 +362,12 @@ export class MintWorker extends zkCloudWorker {
         price,
         sender: sender.toBase58(),
       });
+      await this.cloud.saveFile(
+        `${this.cloud.chain}-sell-${name}-${
+          txSent.hash ? txSent.hash : Date.now()
+        }.json`,
+        Buffer.from(JSON.stringify(txSent.toJSON(), null, 2))
+      );
       if (txSent?.status == "pending") {
         console.log(`tx sent: hash: ${txSent?.hash} status: ${txSent?.status}`);
         await updatePrice({
@@ -368,9 +389,18 @@ export class MintWorker extends zkCloudWorker {
           `tx NOT sent: hash: ${txSent?.hash} status: ${txSent?.status}`,
           txSent
         );
-        return "Error sending transaction";
+        return `Error sending transaction, ${
+          txSent?.hash ? "hash: " + txSent?.hash : ""
+        } ${txSent?.status ? "status: " + txSent?.status : ""}
+        ${txSent?.errors[0] ? "error: " + txSent?.errors[0] : ""}`;
       }
-      return txSent?.hash ?? "Error sending transaction";
+      return (
+        txSent?.hash ??
+        `Error sending transaction, ${
+          txSent?.hash ? "hash: " + txSent?.hash : ""
+        } ${txSent?.status ? "status: " + txSent?.status : ""}
+      ${txSent?.errors[0] ? "error: " + txSent?.errors[0] : ""}`
+      );
     } catch (error) {
       console.error("Error sending transaction", error);
       return "Error sending transaction";
@@ -479,6 +509,12 @@ export class MintWorker extends zkCloudWorker {
         price,
         sender: sender.toBase58(),
       });
+      await this.cloud.saveFile(
+        `${this.cloud.chain}-mint-${name}-${
+          txSent.hash ? txSent.hash : Date.now()
+        }.json`,
+        Buffer.from(JSON.stringify(txSent.toJSON(), null, 2))
+      );
       if (txSent?.status == "pending") {
         console.log(`tx sent: hash: ${txSent?.hash} status: ${txSent?.status}`);
         await algolia({
@@ -502,9 +538,18 @@ export class MintWorker extends zkCloudWorker {
           ...algoliaData,
           status: "failed",
         });
-        return "Error sending transaction";
+        return `Error sending transaction, ${
+          txSent?.hash ? "hash: " + txSent?.hash : ""
+        } ${txSent?.status ? "status: " + txSent?.status : ""}
+        ${txSent?.errors[0] ? "error: " + txSent?.errors[0] : ""}`;
       }
-      return txSent?.hash ?? "Error sending transaction";
+      return (
+        txSent?.hash ??
+        `Error sending transaction, ${
+          txSent?.hash ? "hash: " + txSent?.hash : ""
+        } ${txSent?.status ? "status: " + txSent?.status : ""}
+      ${txSent?.errors[0] ? "error: " + txSent?.errors[0] : ""}`
+      );
     } catch (error) {
       console.error("Error sending transaction", error);
       if (algoliaData)
