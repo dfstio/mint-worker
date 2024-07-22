@@ -83,14 +83,39 @@ export async function algolia(params: {
   }
 }
 
+export async function algoliaTx(params: {
+  data: object;
+  chain: string;
+}): Promise<boolean> {
+  const { data, chain } = params;
+  try {
+    const client = algoliasearch(ALGOLIA_PROJECT, ALGOLIA_KEY);
+    if (chain !== "devnet" && chain !== "mainnet" && chain !== "zeko") {
+      console.error("Invalid chain", chain);
+      return false;
+    }
+    const index = client.initIndex(chain);
+    const result = await index.saveObject(data);
+    if (result.taskID === undefined) {
+      console.error("mint-worker: Algolia write result is", result);
+    }
+
+    return true;
+  } catch (error) {
+    console.error("alWriteToken error:", { error, params });
+    return false;
+  }
+}
+
 export async function updatePrice(params: {
   name: string;
   contractAddress: string;
   price: string;
   chain: string;
+  hash: string;
 }): Promise<boolean> {
   try {
-    const { name, contractAddress, price, chain } = params;
+    const { name, contractAddress, price, chain, hash } = params;
     const client = algoliasearch(ALGOLIA_PROJECT, ALGOLIA_KEY);
     if (chain !== "devnet" && chain !== "mainnet" && chain !== "zeko") {
       console.error("Invalid chain", chain);
@@ -106,6 +131,8 @@ export async function updatePrice(params: {
     }
     if ((data as any).price !== price) {
       (data as any).price = price;
+      (data as any).status = "pending";
+      (data as any).hash = hash;
       const result = await index.saveObject(data);
       if (result.taskID === undefined) {
         console.error(
@@ -127,9 +154,10 @@ export async function updateOwner(params: {
   contractAddress: string;
   owner: string;
   chain: string;
+  hash: string;
 }): Promise<boolean> {
   try {
-    const { name, contractAddress, owner, chain } = params;
+    const { name, contractAddress, owner, chain, hash } = params;
     const client = algoliasearch(ALGOLIA_PROJECT, ALGOLIA_KEY);
     if (chain !== "devnet" && chain !== "mainnet" && chain !== "zeko") {
       console.error("Invalid chain", chain);
@@ -145,6 +173,8 @@ export async function updateOwner(params: {
     }
     (data as any).price = "0";
     (data as any).owner = owner;
+    (data as any).status = "pending";
+    (data as any).hash = hash;
     const result = await index.saveObject(data);
     if (result.taskID === undefined) {
       console.error(
