@@ -3,6 +3,8 @@ import {
   Cloud,
   fetchMinaAccount,
   accountBalanceMina,
+  CloudTransaction,
+  makeString,
 } from "zkcloudworker";
 import {
   VerificationKey,
@@ -45,7 +47,9 @@ import {
   updateOwner,
   algoliaTransaction,
 } from "./algolia";
+import { txStatus, NFTtransaction, updateTransaction } from "./txstatus";
 import { MINANFT_JWT, PINATA_JWT } from "../env.json";
+import { time } from "console";
 
 export class MintWorker extends zkCloudWorker {
   static nftVerificationKey: VerificationKey | undefined = undefined;
@@ -152,6 +156,262 @@ export class MintWorker extends zkCloudWorker {
     }
   }
 
+  private async createTxTask(): Promise<string | undefined> {
+    console.log(`Adding txTask`);
+
+    const txToken = makeString(32);
+    await this.cloud.saveDataByKey("txToken", txToken);
+    const oldTxId = await this.cloud.getDataByKey("txTask.txId");
+    const txId = await this.cloud.addTask({
+      args: JSON.stringify(
+        {
+          txToken,
+        },
+        null,
+        2
+      ),
+      task: "txTask",
+      maxAttempts: 72,
+      metadata: `tx processing: mint-worker`,
+      userId: this.cloud.userId,
+    });
+    if (txId !== undefined) {
+      await this.cloud.saveDataByKey("txTask.txId", txId);
+      if (oldTxId !== undefined) await this.cloud.deleteTask(oldTxId);
+    }
+    return "txTask added";
+  }
+
+  public async task(): Promise<string | undefined> {
+    if (this.cloud.task === undefined) throw new Error("task is undefined");
+    console.log(
+      `Executing task ${this.cloud.task} with taskId ${this.cloud.taskId}`
+    );
+    if (!(await this.run()))
+      return `task ${this.cloud.task} is already running`;
+    let result: string | undefined = undefined;
+    try {
+      switch (this.cloud.task) {
+        case "txTask":
+          result = await this.txTask();
+          break;
+
+        default:
+          console.error("Unknown task in task:", this.cloud.task);
+      }
+      await this.stop();
+      return result ?? "error in task";
+    } catch (error) {
+      console.error("Error in task", error);
+      await this.stop();
+      return "error in task";
+    }
+  }
+
+  private async run(): Promise<boolean> {
+    const taskId = this.cloud.taskId;
+    if (taskId === undefined) {
+      console.error("taskId is undefined", this.cloud);
+      return false;
+    }
+    const statusId = "task.status." + taskId;
+    const status = await this.cloud.getDataByKey(statusId);
+    if (status === undefined) {
+      await this.cloud.saveDataByKey(statusId, Date.now().toString());
+      return true;
+    } else if (Date.now() - Number(status) > 1000 * 60 * 15) {
+      console.error(
+        "Task is running for more than 15 minutes, restarting",
+        this.cloud
+      );
+      await this.cloud.saveDataByKey(statusId, Date.now().toString());
+      return true;
+    } else {
+      console.log("Task is already running", taskId);
+      return false;
+    }
+  }
+
+  private async stop() {
+    const taskId = this.cloud.taskId;
+    const statusId = "task.status." + taskId;
+    await this.cloud.saveDataByKey(statusId, undefined);
+  }
+
+  private async txTask(): Promise<string | undefined> {
+    const txToken = await this.cloud.getDataByKey("txToken");
+    if (txToken === undefined) {
+      console.error("txToken is undefined, exiting");
+      await this.cloud.deleteTask(this.cloud.taskId);
+      return "exiting txTask due to undefined txToken";
+    }
+    if (this.cloud.args === undefined) {
+      console.error("cloud.args are undefined, exiting");
+      await this.cloud.deleteTask(this.cloud.taskId);
+      return "exiting txTask due to undefined cloud.args";
+    }
+    if (txToken !== JSON.parse(this.cloud.args).txToken) {
+      console.log("txToken is replaced, exiting");
+      await this.cloud.deleteTask(this.cloud.taskId);
+      return "exiting txTask due to replaced txToken";
+    }
+    const timeStarted = await this.cloud.getDataByKey("txTask.timeStarted");
+    if (
+      timeStarted !== undefined &&
+      Date.now() - Number(timeStarted) < 1000 * 60
+    ) {
+      console.error(
+        "txTask is already running, detected double invocation, exiting"
+      );
+      if (this.cloud.isLocalCloud === false)
+        return "exiting txTask due to double invocation";
+    }
+    await this.cloud.saveDataByKey("txTask.timeStarted", Date.now().toString());
+    const transactions = await this.cloud.getTransactions();
+    console.log(`txTask with ${transactions.length} transaction(s)`);
+    if (transactions.length !== 0) {
+      // sort by timeReceived, ascending
+      transactions.sort((a, b) => a.timeReceived - b.timeReceived);
+      console.log(
+        `Executing txTask with ${
+          transactions.length
+        } transactions, first tx created at ${new Date(
+          transactions[0].timeReceived
+        ).toLocaleString()}...`
+      );
+      try {
+        // TODO: Use processTransactions ???
+        const result = await this.checkTransactions(transactions);
+        return result;
+      } catch (error) {
+        console.error("Error in txTask", error);
+        return "Error in txTask";
+      }
+    } else {
+      console.log("No transactions to process, deleting task");
+      await this.cloud.deleteTask(this.cloud.taskId);
+      return "no transactions to process";
+    }
+  }
+
+  private async checkTransactions(transactions: CloudTransaction[]) {
+    if (transactions.length === 0) return "no transactions to process";
+    await initBlockchain(this.cloud.chain as blockchain);
+    for (const transaction of transactions) {
+      try {
+        const tx: NFTtransaction = JSON.parse(transaction.transaction);
+        if (tx.chain === this.cloud.chain) {
+          console.log(`Processing transaction`, tx);
+          const status = await txStatus({
+            hash: tx.hash,
+            time: transaction.timeReceived,
+            chain: tx.chain,
+          });
+          if (status === "applied" || status === "replaced") {
+            await updateTransaction({ tx, status });
+            await this.cloud.deleteTransaction(transaction.txId);
+            if (status === "replaced")
+              await this.cloud.saveFile(
+                `${this.cloud.chain}-replaced-${tx.hash}.json`,
+                Buffer.from(
+                  JSON.stringify(
+                    {
+                      time: Date.now(),
+                      timeISO: new Date(Date.now()).toISOString(),
+                      hash: tx.hash,
+                      status: status,
+                      tx,
+                      transaction,
+                    },
+                    null,
+                    2
+                  )
+                )
+              );
+          } else if (status === "pending") {
+            console.log(`Transaction ${tx.hash} is pending`);
+          } else {
+            console.error(
+              `checkTransactions: Transaction ${tx.hash} status is ${status}`
+            );
+          }
+        }
+      } catch (error) {
+        console.error("checkTransactions: Error processing transaction", error);
+      }
+    }
+    return "txs processed";
+  }
+
+  private async saveTransaction(params: {
+    tx: Mina.PendingTransaction | Mina.RejectedTransaction;
+    name: string;
+    operation: string;
+    contractAddress: string;
+    address: string;
+    jobId: string;
+    sender: string;
+    price: string;
+  }): Promise<void> {
+    const {
+      tx,
+      name,
+      operation,
+      contractAddress,
+      address,
+      jobId,
+      sender,
+      price,
+    } = params;
+    const time = Date.now();
+    await this.cloud.saveFile(
+      `${this.cloud.chain}-${operation}-${name}-${
+        tx.hash ? tx.hash : Date.now()
+      }.json`,
+      Buffer.from(
+        JSON.stringify(
+          {
+            time,
+            timeISO: new Date(time).toISOString(),
+            hash: tx.hash,
+            status: tx.status,
+            errors: tx.errors,
+            tx: tx.toJSON(),
+          },
+          null,
+          2
+        )
+      )
+    );
+    if (tx.status === "pending") {
+      /*
+      export interface NFTtransaction {
+        hash: string;
+        chain: string;
+        address: string;
+        jobId: string;
+        sender: string;
+        operation: string;
+        price: string;
+        name: string;
+      }
+  */
+      const nftTransaction: NFTtransaction = {
+        hash: tx.hash,
+        chain: this.cloud.chain,
+        contractAddress,
+        address,
+        jobId,
+        sender,
+        operation,
+        price,
+        name,
+      };
+      await this.createTxTask();
+      await this.cloud.sendTransactions([JSON.stringify(nftTransaction)]);
+    }
+  }
+
   private async buy(args: {
     contractAddress: string;
     transactions: string[];
@@ -235,12 +495,16 @@ export class MintWorker extends zkCloudWorker {
         price,
         sender: sender.toBase58(),
       });
-      await this.cloud.saveFile(
-        `${this.cloud.chain}-buy-${name}-${
-          txSent.hash ? txSent.hash : Date.now()
-        }.json`,
-        Buffer.from(JSON.stringify(txSent.toJSON(), null, 2))
-      );
+      await this.saveTransaction({
+        tx: txSent,
+        name,
+        operation: "buy",
+        contractAddress: args.contractAddress,
+        address: address.toBase58(),
+        jobId: this.cloud.jobId,
+        sender: sender.toBase58(),
+        price,
+      });
       if (txSent?.status === "pending") {
         console.log(`tx sent: hash: ${txSent?.hash} status: ${txSent?.status}`);
         await updateOwner({
@@ -248,6 +512,7 @@ export class MintWorker extends zkCloudWorker {
           contractAddress: args.contractAddress,
           owner: sender.toBase58(),
           chain: this.cloud.chain,
+          hash: txSent?.hash,
         });
         await this.cloud.publishTransactionMetadata({
           txId: txSent?.hash,
@@ -362,12 +627,16 @@ export class MintWorker extends zkCloudWorker {
         price,
         sender: sender.toBase58(),
       });
-      await this.cloud.saveFile(
-        `${this.cloud.chain}-sell-${name}-${
-          txSent.hash ? txSent.hash : Date.now()
-        }.json`,
-        Buffer.from(JSON.stringify(txSent.toJSON(), null, 2))
-      );
+      await this.saveTransaction({
+        tx: txSent,
+        name,
+        operation: "sell",
+        contractAddress: args.contractAddress,
+        address: address.toBase58(),
+        jobId: this.cloud.jobId,
+        sender: sender.toBase58(),
+        price,
+      });
       if (txSent?.status == "pending") {
         console.log(`tx sent: hash: ${txSent?.hash} status: ${txSent?.status}`);
         await updatePrice({
@@ -375,6 +644,7 @@ export class MintWorker extends zkCloudWorker {
           contractAddress: args.contractAddress,
           price,
           chain: this.cloud.chain,
+          hash: txSent?.hash,
         });
         await this.cloud.publishTransactionMetadata({
           txId: txSent?.hash,
@@ -509,12 +779,16 @@ export class MintWorker extends zkCloudWorker {
         price,
         sender: sender.toBase58(),
       });
-      await this.cloud.saveFile(
-        `${this.cloud.chain}-mint-${name}-${
-          txSent.hash ? txSent.hash : Date.now()
-        }.json`,
-        Buffer.from(JSON.stringify(txSent.toJSON(), null, 2))
-      );
+      await this.saveTransaction({
+        tx: txSent,
+        name,
+        operation: "mint",
+        contractAddress: args.contractAddress,
+        address: mintData.address.toBase58(),
+        jobId: this.cloud.jobId,
+        sender: sender.toBase58(),
+        price,
+      });
       if (txSent?.status == "pending") {
         console.log(`tx sent: hash: ${txSent?.hash} status: ${txSent?.status}`);
         await algolia({
