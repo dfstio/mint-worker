@@ -68,6 +68,7 @@ export async function algolia(params: {
       jobId,
       ipfs,
       hash,
+      version: "1",
       ...json,
     };
 
