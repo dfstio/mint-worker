@@ -714,7 +714,7 @@ export class MintWorker extends zkCloudWorker {
         signedJson
       );
       console.log("fee", fee.toBigInt());
-      const price = updateData.price.toBigInt().toString();
+      const metadataParams = updateData.metadataParams;
       const address = updateData.address;
 
       await this.compile();
@@ -739,7 +739,7 @@ export class MintWorker extends zkCloudWorker {
       const txNew = await Mina.transaction(
         { sender, fee, nonce, memo },
         async () => {
-          await zkApp.sell(updateData);
+          await zkApp.update(updateData);
         }
       );
 
@@ -770,7 +770,7 @@ export class MintWorker extends zkCloudWorker {
         hash: txSent?.hash,
         status: txSent?.status,
         operation: "update",
-        price,
+        price: "0",
         sender: sender.toBase58(),
       });
       await this.saveTransaction({
@@ -781,7 +781,7 @@ export class MintWorker extends zkCloudWorker {
         address: address.toBase58(),
         jobId: this.cloud.jobId,
         sender: sender.toBase58(),
-        price,
+        price: "0",
       });
       if (txSent?.status == "pending") {
         console.log(`tx sent: hash: ${txSent?.hash} status: ${txSent?.status}`);
@@ -789,7 +789,16 @@ export class MintWorker extends zkCloudWorker {
           txId: txSent?.hash,
           metadata: {
             events: [
-              { type: "update", name, price, seller: sender.toBase58() },
+              {
+                type: "update",
+                name,
+                owner: sender.toBase58(),
+                metadata: {
+                  data: metadataParams.metadata.data.toJSON(),
+                  kind: metadataParams.metadata.kind.toJSON(),
+                },
+                ipfs: metadataParams.storage.toIpfsHash(),
+              },
             ],
             actions: [],
             custom: {},
