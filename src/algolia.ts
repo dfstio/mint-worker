@@ -201,6 +201,7 @@ export async function algoliaTransaction(params: {
   operation: string;
   price: string;
   sender: string;
+  newOwner?: string;
 }): Promise<boolean> {
   try {
     const { jobId, chain } = params;

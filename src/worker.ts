@@ -25,6 +25,7 @@ import {
   MintParams,
   SellParams,
   BuyParams,
+  TransferParams,
   deserializeFields,
   initBlockchain,
   blockchain,
@@ -135,6 +136,12 @@ export class MintWorker extends zkCloudWorker {
 
       case "sell":
         return await this.sell({
+          contractAddress: args.contractAddress,
+          transactions,
+        });
+
+      case "transfer":
+        return await this.transfer({
           contractAddress: args.contractAddress,
           transactions,
         });
@@ -313,7 +320,11 @@ export class MintWorker extends zkCloudWorker {
             time: transaction.timeReceived,
             chain: tx.chain,
           });
-          if (status === "applied" || status === "replaced") {
+          if (
+            status === "applied" ||
+            status === "replaced" ||
+            status === "failed"
+          ) {
             await updateTransaction({ tx, status, cloud: this.cloud });
             await this.cloud.deleteTransaction(transaction.txId);
             if (status === "replaced")
@@ -358,6 +369,7 @@ export class MintWorker extends zkCloudWorker {
     jobId: string;
     sender: string;
     price: string;
+    newOwner?: string;
   }): Promise<void> {
     const {
       tx,
@@ -368,6 +380,7 @@ export class MintWorker extends zkCloudWorker {
       jobId,
       sender,
       price,
+      newOwner,
     } = params;
     const time = Date.now();
     await this.cloud.saveFile(
@@ -383,6 +396,7 @@ export class MintWorker extends zkCloudWorker {
             status: tx.status,
             errors: tx.errors,
             tx: tx.toJSON(),
+            newOwner,
           },
           null,
           2
@@ -683,6 +697,142 @@ export class MintWorker extends zkCloudWorker {
     }
   }
 
+  private async transfer(args: {
+    contractAddress: string;
+    transactions: string[];
+  }): Promise<string> {
+    if (args.transactions.length === 0) {
+      return "No transactions to send";
+    }
+    try {
+      console.log("chain:", this.cloud.chain);
+      await initBlockchain(this.cloud.chain as blockchain);
+
+      const { serializedTransaction, signedData, transferParams, name } =
+        JSON.parse(args.transactions[0]);
+      const signedJson = JSON.parse(signedData);
+      const contractAddress = PublicKey.fromBase58(args.contractAddress);
+      const transferData = TransferParams.fromFields(
+        deserializeFields(transferParams)
+      ) as TransferParams;
+      const { fee, sender, nonce, memo } = transactionParams(
+        serializedTransaction,
+        signedJson
+      );
+      console.log("fee", fee.toBigInt());
+      const newOwner = transferData.newOwner.toBase58();
+      const address = transferData.address;
+
+      await this.compile();
+      console.time("prepared tx");
+
+      const zkApp = new NameContractV2(contractAddress);
+      const tokenId = zkApp.deriveTokenId();
+      await fetchMinaAccount({
+        publicKey: contractAddress,
+        force: true,
+      });
+      await fetchMinaAccount({
+        publicKey: sender,
+        force: true,
+      });
+      await fetchMinaAccount({
+        publicKey: address,
+        tokenId,
+        force: true,
+      });
+
+      const txNew = await Mina.transaction(
+        { sender, fee, nonce, memo },
+        async () => {
+          await zkApp.transferNFT(transferData);
+        }
+      );
+
+      console.log("txNew", txNew);
+      console.log("SignedJson", signedJson);
+      const tx = deserializeTransaction(
+        serializedTransaction,
+        txNew,
+        signedJson
+      );
+      if (tx === undefined) throw new Error("tx is undefined");
+
+      console.timeEnd("prepared tx");
+
+      console.time("proved tx");
+      await tx.prove();
+      console.timeEnd("proved tx");
+
+      console.log(`Sending tx...`);
+      console.log("sender:", sender.toBase58());
+      console.log("Sender balance:", await accountBalanceMina(sender));
+      const txSent = await tx.safeSend();
+      await algoliaTransaction({
+        jobId: this.cloud.jobId,
+        name,
+        contractAddress: args.contractAddress,
+        chain: this.cloud.chain,
+        hash: txSent?.hash,
+        status: txSent?.status,
+        operation: "transfer",
+        price: "0",
+        newOwner,
+        sender: sender.toBase58(),
+      });
+      await this.saveTransaction({
+        tx: txSent,
+        name,
+        operation: "transfer",
+        contractAddress: args.contractAddress,
+        address: address.toBase58(),
+        jobId: this.cloud.jobId,
+        sender: sender.toBase58(),
+        price: "0",
+        newOwner,
+      });
+      if (txSent?.status == "pending") {
+        console.log(`tx sent: hash: ${txSent?.hash} status: ${txSent?.status}`);
+
+        await this.cloud.publishTransactionMetadata({
+          txId: txSent?.hash,
+          metadata: {
+            events: [
+              {
+                type: "transfer",
+                name,
+                newOwner,
+                price: "0",
+                seller: sender.toBase58(),
+              },
+            ],
+            actions: [],
+            custom: {},
+          },
+        });
+      } else {
+        console.log(
+          `tx NOT sent: hash: ${txSent?.hash} status: ${txSent?.status}`,
+          txSent
+        );
+        return `Error sending transaction, ${
+          txSent?.hash ? "hash: " + txSent?.hash : ""
+        } ${txSent?.status ? "status: " + txSent?.status : ""}
+        ${txSent?.errors[0] ? "error: " + txSent?.errors[0] : ""}`;
+      }
+      return (
+        txSent?.hash ??
+        `Error sending transaction, ${
+          txSent?.hash ? "hash: " + txSent?.hash : ""
+        } ${txSent?.status ? "status: " + txSent?.status : ""}
+      ${txSent?.errors[0] ? "error: " + txSent?.errors[0] : ""}`
+      );
+    } catch (error) {
+      console.error("Error sending transaction", error);
+      return "Error sending transaction";
+    }
+  }
+
   private async update(args: {
     contractAddress: string;
     transactions: string[];
@@ -708,7 +858,7 @@ export class MintWorker extends zkCloudWorker {
       const contractAddress = PublicKey.fromBase58(args.contractAddress);
       const updateData = UpdateParams.fromFields(
         deserializeFields(updateParams)
-      ) as MintParams;
+      ) as UpdateParams;
       const { fee, sender, nonce, memo } = transactionParams(
         serializedTransaction,
         signedJson

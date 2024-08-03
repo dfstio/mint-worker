@@ -79,7 +79,7 @@ async function getZkAppTxFromBlockberry(params: {
 
 export async function updateTransaction(params: {
   tx: NFTtransaction;
-  status: "applied" | "replaced";
+  status: "applied" | "replaced" | "failed";
   cloud: Cloud;
 }): Promise<void> {
   const { tx, status, cloud } = params;
