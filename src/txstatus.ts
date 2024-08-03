@@ -6,7 +6,9 @@ import {
   NFTparams,
 } from "minanft";
 import { algoliaTx } from "./algolia";
+import { pinIfNeeded } from "./pin";
 import { BLOCKBERRY_API, IPFS_URL, IPFS_TOKEN } from "../env.json";
+import { Cloud } from "zkcloudworker";
 
 export interface NFTtransaction {
   hash: string;
@@ -77,9 +79,10 @@ async function getZkAppTxFromBlockberry(params: {
 
 export async function updateTransaction(params: {
   tx: NFTtransaction;
-  status: "applied" | "replaced";
+  status: "applied" | "replaced" | "failed";
+  cloud: Cloud;
 }): Promise<void> {
-  const { tx, status } = params;
+  const { tx, status, cloud } = params;
   const { jobId, chain, contractAddress, address: nftAddress, hash } = tx;
   try {
     const zkApp = new NameContractV2(PublicKey.fromBase58(contractAddress));
@@ -109,6 +112,8 @@ export async function updateTransaction(params: {
         console.error("updateTransaction: No data found for hash", ipfs);
         return;
       }
+      await cloud.saveFile(`uri-` + ipfs, data);
+
       const json = JSON.parse(data.toString());
       const objectID = chain + "." + contractAddress + "." + name;
 
@@ -129,6 +134,45 @@ export async function updateTransaction(params: {
 
       console.log("Algolia data", algoliaData);
       await algoliaTx({ data: algoliaData, chain });
+      await pinIfNeeded({
+        hash: ipfs,
+        keyvalues: {
+          name,
+          contractAddress,
+          address: json?.address ?? "",
+          chain: "mainnet",
+          developer: "DFST",
+          repo: "mint-worker",
+          project: "MinaNFT",
+        },
+      });
+      const imageHash = json?.image?.replace(
+        "https://gateway.pinata.cloud/ipfs/",
+        ""
+      );
+      if (imageHash) {
+        await pinIfNeeded({
+          hash: imageHash,
+          keyvalues: {
+            name,
+            contractAddress,
+            address: json?.address ?? "",
+            chain: "mainnet",
+            developer: "DFST",
+            repo: "mint-worker",
+            project: "MinaNFT",
+          },
+        });
+        const data = await localLoadFromIPFS(imageHash);
+        if (data === undefined) {
+          console.error(
+            "updateTransaction: No image data found for hash",
+            imageHash
+          );
+          return;
+        }
+        await cloud.saveFile(`image-` + imageHash, data);
+      } else console.error("updateTransaction: No image found in json", json);
     }
   } catch (error) {
     console.error("updateTransaction error", error);
