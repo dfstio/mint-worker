@@ -31,7 +31,17 @@ export async function txStatus(params: {
 
   if (chain === "mainnet") {
     const tx = await getZkAppTxFromBlockberry({ hash });
-    return tx?.txStatus ? tx.txStatus : "replaced";
+    if (tx?.txStatus) return tx?.txStatus;
+    if (Date.now() - time > 1000 * 60 * 21) {
+      console.error(
+        "txStatus: Timeout while checking tx with blockberry",
+        chain,
+        hash
+      );
+      return "replaced";
+    } else {
+      return "pending";
+    }
   } else {
     try {
       const tx = await checkZkappTransaction(hash);
@@ -65,11 +75,19 @@ async function getZkAppTxFromBlockberry(params: {
       `https://api.blockberry.one/mina-mainnet/v1/zkapps/txs/${hash}`,
       options
     );
-    const result = await response.json();
-    return result;
+    if (response.ok) {
+      const result = await response.json();
+      return result;
+    } else {
+      console.error(
+        "getZkAppTxFromBlockberry error while getting mainnet hash - not ok",
+        { hash, text: response.statusText, status: response.status }
+      );
+      return undefined;
+    }
   } catch (err) {
     console.error(
-      "getZkAppTxFromBlockberry error while getting mainnet hash",
+      "getZkAppTxFromBlockberry error while getting mainnet hash - catch",
       hash,
       err
     );
