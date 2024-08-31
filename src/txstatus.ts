@@ -5,11 +5,12 @@ import {
   NFTContractV2,
   NFTparams,
 } from "minanft";
-import { algoliaTx } from "./algolia";
+import { algoliaTx, updateStatus } from "./algolia";
 import { pinIfNeeded } from "./pin";
 import { BLOCKBERRY_API, IPFS_URL, IPFS_TOKEN } from "../env.json";
 import { Cloud } from "zkcloudworker";
 
+export type NFToperation = "mint" | "transfer" | "update" | "sell" | "buy";
 export interface NFTtransaction {
   hash: string;
   chain: string;
@@ -17,7 +18,7 @@ export interface NFTtransaction {
   address: string;
   jobId: string;
   sender: string;
-  operation: string;
+  operation: NFToperation;
   price: string;
   name: string;
 }
@@ -31,7 +32,17 @@ export async function txStatus(params: {
 
   if (chain === "mainnet") {
     const tx = await getZkAppTxFromBlockberry({ hash });
-    return tx?.txStatus ? tx.txStatus : "replaced";
+    if (tx?.txStatus) return tx?.txStatus;
+    if (Date.now() - time > 1000 * 60 * 21) {
+      console.error(
+        "txStatus: Timeout while checking tx with blockberry",
+        chain,
+        hash
+      );
+      return "replaced";
+    } else {
+      return "pending";
+    }
   } else {
     try {
       const tx = await checkZkappTransaction(hash);
@@ -65,11 +76,19 @@ async function getZkAppTxFromBlockberry(params: {
       `https://api.blockberry.one/mina-mainnet/v1/zkapps/txs/${hash}`,
       options
     );
-    const result = await response.json();
-    return result;
+    if (response.ok) {
+      const result = await response.json();
+      return result;
+    } else {
+      console.error(
+        "getZkAppTxFromBlockberry error while getting mainnet hash - not ok",
+        { hash, text: response.statusText, status: response.status }
+      );
+      return undefined;
+    }
   } catch (err) {
     console.error(
-      "getZkAppTxFromBlockberry error while getting mainnet hash",
+      "getZkAppTxFromBlockberry error while getting mainnet hash - catch",
       hash,
       err
     );
@@ -83,7 +102,15 @@ export async function updateTransaction(params: {
   cloud: Cloud;
 }): Promise<void> {
   const { tx, status, cloud } = params;
-  const { jobId, chain, contractAddress, address: nftAddress, hash } = tx;
+  const {
+    jobId,
+    chain,
+    contractAddress,
+    address: nftAddress,
+    hash,
+    name,
+    operation,
+  } = tx;
   try {
     const zkApp = new NameContractV2(PublicKey.fromBase58(contractAddress));
     const tokenId = zkApp.deriveTokenId();
@@ -97,6 +124,28 @@ export async function updateTransaction(params: {
     });
     if (!Mina.hasAccount(address, tokenId)) {
       console.error("updateTransaction: No account found", address.toBase58());
+      if (status === "replaced" && operation === "mint") {
+        console.error(
+          "Replaced tx in updateTransaction: Updating algolia index",
+          status,
+          tx
+        );
+
+        try {
+          await updateStatus({
+            name,
+            contractAddress,
+            chain,
+            hash,
+            status,
+          });
+        } catch (error) {
+          console.log(
+            "Error in Replaced tx in updateTransaction: algolia: updateStatus",
+            error
+          );
+        }
+      }
     } else {
       const name = Encoding.stringFromFields([nft.name.get()]);
       const metadataParams = nft.metadataParams.get();
