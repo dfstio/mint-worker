@@ -49,7 +49,12 @@ import {
   updateOwner,
   algoliaTransaction,
 } from "./algolia";
-import { txStatus, NFTtransaction, updateTransaction } from "./txstatus";
+import {
+  txStatus,
+  NFTtransaction,
+  NFToperation,
+  updateTransaction,
+} from "./txstatus";
 import { MINANFT_JWT, PINATA_JWT, UPDATE_CODE } from "../env.json";
 
 export class MintWorker extends zkCloudWorker {
@@ -363,7 +368,7 @@ export class MintWorker extends zkCloudWorker {
   private async saveTransaction(params: {
     tx: Mina.PendingTransaction | Mina.RejectedTransaction;
     name: string;
-    operation: string;
+    operation: NFToperation;
     contractAddress: string;
     address: string;
     jobId: string;

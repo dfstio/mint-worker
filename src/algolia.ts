@@ -191,6 +191,49 @@ export async function updateOwner(params: {
   }
 }
 
+export async function updateStatus(params: {
+  name: string;
+  contractAddress: string;
+  status: string;
+  chain: string;
+  hash: string;
+}): Promise<boolean> {
+  try {
+    const { name, contractAddress, chain, hash, status } = params;
+    if (status !== "replaced") {
+      console.error("updateStatus: Invalid status", status);
+      return false;
+    }
+    const client = algoliasearch(ALGOLIA_PROJECT, ALGOLIA_KEY);
+    if (chain !== "devnet" && chain !== "mainnet" && chain !== "zeko") {
+      console.error("Invalid chain", chain);
+      return false;
+    }
+    const index = client.initIndex(chain);
+    console.log("updateStatus", params);
+    const objectID = chain + "." + contractAddress + "." + name;
+    const data = await index.getObject(objectID);
+    if (data === undefined) {
+      console.error("updateStatus: object not found", objectID);
+      return false;
+    }
+    (data as any).status = status;
+    (data as any).hash = hash;
+    const result = await index.saveObject(data);
+    if (result.taskID === undefined) {
+      console.error(
+        "mint-worker: updateStatus: Algolia write result is",
+        result
+      );
+    }
+
+    return true;
+  } catch (error) {
+    console.error("mint-worker: updateStatus error:", { error, params });
+    return false;
+  }
+}
+
 export async function algoliaTransaction(params: {
   name: string;
   jobId: string;

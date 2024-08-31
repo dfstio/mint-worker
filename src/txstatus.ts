@@ -5,11 +5,12 @@ import {
   NFTContractV2,
   NFTparams,
 } from "minanft";
-import { algoliaTx } from "./algolia";
+import { algoliaTx, updateStatus } from "./algolia";
 import { pinIfNeeded } from "./pin";
 import { BLOCKBERRY_API, IPFS_URL, IPFS_TOKEN } from "../env.json";
 import { Cloud } from "zkcloudworker";
 
+export type NFToperation = "mint" | "transfer" | "update" | "sell" | "buy";
 export interface NFTtransaction {
   hash: string;
   chain: string;
@@ -17,7 +18,7 @@ export interface NFTtransaction {
   address: string;
   jobId: string;
   sender: string;
-  operation: string;
+  operation: NFToperation;
   price: string;
   name: string;
 }
@@ -101,7 +102,15 @@ export async function updateTransaction(params: {
   cloud: Cloud;
 }): Promise<void> {
   const { tx, status, cloud } = params;
-  const { jobId, chain, contractAddress, address: nftAddress, hash } = tx;
+  const {
+    jobId,
+    chain,
+    contractAddress,
+    address: nftAddress,
+    hash,
+    name,
+    operation,
+  } = tx;
   try {
     const zkApp = new NameContractV2(PublicKey.fromBase58(contractAddress));
     const tokenId = zkApp.deriveTokenId();
@@ -115,6 +124,28 @@ export async function updateTransaction(params: {
     });
     if (!Mina.hasAccount(address, tokenId)) {
       console.error("updateTransaction: No account found", address.toBase58());
+      if (status === "replaced" && operation === "mint") {
+        console.error(
+          "Replaced tx in updateTransaction: Updating algolia index",
+          status,
+          tx
+        );
+
+        try {
+          await updateStatus({
+            name,
+            contractAddress,
+            chain,
+            hash,
+            status,
+          });
+        } catch (error) {
+          console.log(
+            "Error in Replaced tx in updateTransaction: algolia: updateStatus",
+            error
+          );
+        }
+      }
     } else {
       const name = Encoding.stringFromFields([nft.name.get()]);
       const metadataParams = nft.metadataParams.get();
