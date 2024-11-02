@@ -798,7 +798,13 @@ export class MintWorker extends zkCloudWorker {
       });
       if (txSent?.status == "pending") {
         console.log(`tx sent: hash: ${txSent?.hash} status: ${txSent?.status}`);
-
+        await updateOwner({
+          name,
+          contractAddress: args.contractAddress,
+          owner: transferData.newOwner.toBase58(),
+          chain: this.cloud.chain,
+          hash: txSent?.hash,
+        });
         await this.cloud.publishTransactionMetadata({
           txId: txSent?.hash,
           metadata: {
