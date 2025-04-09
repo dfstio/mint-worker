@@ -241,6 +241,8 @@ export async function algoliaTransaction(params: {
   chain: string;
   hash?: string;
   status?: string;
+  errors?: string;
+  sentInMs?: number;
   operation: string;
   price: string;
   sender: string;
