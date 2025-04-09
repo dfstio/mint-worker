@@ -5,6 +5,7 @@ import {
   accountBalanceMina,
   CloudTransaction,
   makeString,
+  sleep,
 } from "zkcloudworker";
 import {
   VerificationKey,
@@ -544,14 +545,30 @@ export class MintWorker extends zkCloudWorker {
           metadata: {
             events: [{ type: "buy", name, price, buyer: sender.toBase58() }],
             actions: [],
-            custom: {},
+            custom: {
+              hash: txSent?.hash,
+              errors: txSent?.errors ? String(txSent.errors) : undefined,
+              status: txSent?.status,
+            },
           },
         });
       } else {
-        console.log(
+        console.error(
           `tx NOT sent: hash: ${txSent?.hash} status: ${txSent?.status}`,
           txSent
         );
+        await this.cloud.publishTransactionMetadata({
+          txId: txSent?.hash,
+          metadata: {
+            events: [{ type: "buy", name, price, buyer: sender.toBase58() }],
+            actions: [],
+            custom: {
+              hash: txSent?.hash,
+              errors: txSent?.errors ? String(txSent.errors) : undefined,
+              status: txSent?.status,
+            },
+          },
+        });
         return `Error sending transaction, ${
           txSent?.hash ? "hash: " + txSent?.hash : ""
         } ${txSent?.status ? "status: " + txSent?.status : ""}
@@ -676,14 +693,30 @@ export class MintWorker extends zkCloudWorker {
           metadata: {
             events: [{ type: "sell", name, price, seller: sender.toBase58() }],
             actions: [],
-            custom: {},
+            custom: {
+              hash: txSent?.hash,
+              errors: txSent?.errors ? String(txSent.errors) : undefined,
+              status: txSent?.status,
+            },
           },
         });
       } else {
-        console.log(
+        console.error(
           `tx NOT sent: hash: ${txSent?.hash} status: ${txSent?.status}`,
           txSent
         );
+        await this.cloud.publishTransactionMetadata({
+          txId: txSent?.hash,
+          metadata: {
+            events: [{ type: "sell", name, price, seller: sender.toBase58() }],
+            actions: [],
+            custom: {
+              hash: txSent?.hash,
+              errors: txSent?.errors ? String(txSent.errors) : undefined,
+              status: txSent?.status,
+            },
+          },
+        });
         return `Error sending transaction, ${
           txSent?.hash ? "hash: " + txSent?.hash : ""
         } ${txSent?.status ? "status: " + txSent?.status : ""}
@@ -822,10 +855,30 @@ export class MintWorker extends zkCloudWorker {
           },
         });
       } else {
-        console.log(
+        console.error(
           `tx NOT sent: hash: ${txSent?.hash} status: ${txSent?.status}`,
           txSent
         );
+        await this.cloud.publishTransactionMetadata({
+          txId: txSent?.hash,
+          metadata: {
+            events: [
+              {
+                type: "transfer",
+                name,
+                newOwner,
+                price: "0",
+                seller: sender.toBase58(),
+              },
+            ],
+            actions: [],
+            custom: {
+              hash: txSent?.hash,
+              errors: txSent?.errors ? String(txSent.errors) : undefined,
+              status: txSent?.status,
+            },
+          },
+        });
         return `Error sending transaction, ${
           txSent?.hash ? "hash: " + txSent?.hash : ""
         } ${txSent?.status ? "status: " + txSent?.status : ""}
@@ -1078,7 +1131,46 @@ export class MintWorker extends zkCloudWorker {
       console.log(`Sending tx...`);
       console.log("sender:", sender.toBase58());
       console.log("Sender balance:", await accountBalanceMina(sender));
-      const txSent = await tx.safeSend();
+      let retry = 0;
+      const maxRetries = this.cloud.chain === "mainnet" ? 12 : 3;
+      const startSendTime = Date.now();
+      let txSent:
+        | Mina.PendingTransaction
+        | Mina.RejectedTransaction
+        | undefined = undefined;
+      while (
+        (txSent === undefined || txSent.status !== "pending") &&
+        retry < maxRetries &&
+        Date.now() - startSendTime < 1000 * 60 * 3
+      ) {
+        try {
+          txSent = await tx.safeSend();
+          if (txSent?.status !== "pending") {
+            console.error("txSent error:", {
+              name,
+              retry,
+              jobId: this.cloud.jobId,
+              status: txSent?.status,
+              errors: txSent?.errors,
+              delay: Date.now() - startSendTime,
+            });
+          }
+        } catch (error: any) {
+          console.error("Error sending transaction", {
+            error: error?.message,
+            retry,
+            jobId: this.cloud.jobId,
+            status: txSent?.status,
+            errors: txSent?.errors,
+            delay: Date.now() - startSendTime,
+          });
+        }
+
+        if (txSent === undefined || txSent.status !== "pending") {
+          await sleep(10000);
+          retry++;
+        }
+      }
       await algoliaTransaction({
         jobId: this.cloud.jobId,
         name,
@@ -1086,22 +1178,29 @@ export class MintWorker extends zkCloudWorker {
         chain: this.cloud.chain,
         hash: txSent?.hash,
         status: txSent?.status,
+        errors: txSent?.errors ? String(txSent.errors) : undefined,
+        sentInMs: Date.now() - startSendTime,
         operation: "mint",
         price,
         sender: sender.toBase58(),
       });
-      await this.saveTransaction({
-        tx: txSent,
-        name,
-        operation: "mint",
-        contractAddress: args.contractAddress,
-        address: mintData.address.toBase58(),
-        jobId: this.cloud.jobId,
-        sender: sender.toBase58(),
-        price,
-      });
+      if (txSent)
+        await this.saveTransaction({
+          tx: txSent,
+          name,
+          operation: "mint",
+          contractAddress: args.contractAddress,
+          address: mintData.address.toBase58(),
+          jobId: this.cloud.jobId,
+          sender: sender.toBase58(),
+          price,
+        });
       if (txSent?.status == "pending") {
-        console.log(`tx sent: hash: ${txSent?.hash} status: ${txSent?.status}`);
+        console.log(
+          `tx sent: hash: ${txSent?.hash} status: ${txSent?.status} delay: ${
+            Date.now() - startSendTime
+          }`
+        );
         await algolia({
           ...algoliaData,
           status: "pending",
@@ -1112,12 +1211,34 @@ export class MintWorker extends zkCloudWorker {
           metadata: {
             events: [{ type: "mint", name, price, owner: sender.toBase58() }],
             actions: [],
-            custom: {},
+            custom: {
+              hash: txSent?.hash,
+              status: txSent?.status,
+              errors: txSent?.errors ? String(txSent.errors) : undefined,
+              sentInMs: Date.now() - startSendTime,
+              retries: retry,
+            },
           },
         });
       } else {
-        console.log(
-          `tx NOT sent: hash: ${txSent?.hash} status: ${txSent?.status}`,
+        await this.cloud.publishTransactionMetadata({
+          txId: txSent?.hash ?? "none",
+          metadata: {
+            events: [{ type: "mint", name, price, owner: sender.toBase58() }],
+            actions: [],
+            custom: {
+              hash: txSent?.hash,
+              errors: txSent?.errors ? String(txSent.errors) : undefined,
+              status: txSent?.status,
+              sentInMs: Date.now() - startSendTime,
+              retries: retry,
+            },
+          },
+        });
+        console.error(
+          `tx NOT sent: hash: ${txSent?.hash} status: ${
+            txSent?.status
+          } retry: ${retry} delay: ${Date.now() - startSendTime}`,
           txSent
         );
         await algolia({
@@ -1137,7 +1258,7 @@ export class MintWorker extends zkCloudWorker {
         } ${txSent?.status ? "status: " + txSent?.status : ""}
       ${txSent?.errors[0] ? "error: " + txSent?.errors[0] : ""}`
       );
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error sending transaction", error);
       if (algoliaData)
         await algolia({

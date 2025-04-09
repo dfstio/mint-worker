@@ -8,7 +8,7 @@ import {
 import { algoliaTx, updateStatus } from "./algolia";
 import { pinIfNeeded } from "./pin";
 import { BLOCKBERRY_API, IPFS_URL, IPFS_TOKEN } from "../env.json";
-import { Cloud } from "zkcloudworker";
+import { blockchain, Cloud, initBlockchain } from "zkcloudworker";
 
 export type NFToperation = "mint" | "transfer" | "update" | "sell" | "buy";
 export interface NFTtransaction {
@@ -30,10 +30,15 @@ export async function txStatus(params: {
 }): Promise<string> {
   const { hash, chain, time } = params;
 
-  if (chain === "mainnet") {
-    const tx = await getZkAppTxFromBlockberry({ hash });
+  if (chain === "mainnet" || chain === "devnet") {
+    try {
+      const tx = await checkZkappTransaction(hash);
+      if (tx?.success) return "applied";
+    } catch (error) {}
+    const tx = await getZkAppTxFromBlockberry({ hash, chain });
     if (tx?.txStatus) return tx?.txStatus;
-    if (Date.now() - time > 1000 * 60 * 21) {
+
+    if (Date.now() - time > 1000 * 60 * 120) {
       console.error(
         "txStatus: Timeout while checking tx with blockberry",
         chain,
@@ -47,7 +52,7 @@ export async function txStatus(params: {
     try {
       const tx = await checkZkappTransaction(hash);
       if (tx?.success) return "applied";
-      if (Date.now() - time > 1000 * 60 * 21) {
+      if (Date.now() - time > 1000 * 60 * 120) {
         console.error("txStatus: Timeout while checking tx", chain, hash);
         return "replaced";
       } else {
@@ -62,8 +67,9 @@ export async function txStatus(params: {
 
 async function getZkAppTxFromBlockberry(params: {
   hash: string;
+  chain: string;
 }): Promise<any> {
-  const { hash } = params;
+  const { hash, chain } = params;
   const options = {
     method: "GET",
     headers: {
@@ -73,22 +79,22 @@ async function getZkAppTxFromBlockberry(params: {
   };
   try {
     const response = await fetch(
-      `https://api.blockberry.one/mina-mainnet/v1/zkapps/txs/${hash}`,
+      `https://api.blockberry.one/mina-${chain}/v1/zkapps/txs/${hash}`,
       options
     );
     if (response.ok) {
       const result = await response.json();
       return result;
     } else {
-      console.error(
-        "getZkAppTxFromBlockberry error while getting mainnet hash - not ok",
+      console.warn(
+        `getZkAppTxFromBlockberry error while getting ${chain} hash - not ok`,
         { hash, text: response.statusText, status: response.status }
       );
       return undefined;
     }
   } catch (err) {
     console.error(
-      "getZkAppTxFromBlockberry error while getting mainnet hash - catch",
+      `getZkAppTxFromBlockberry error while getting ${chain} hash - catch`,
       hash,
       err
     );
